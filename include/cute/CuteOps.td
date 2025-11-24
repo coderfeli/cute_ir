@@ -185,3 +185,133 @@ def Cute_CompositionOp : Cute_Op<"composition", []> {
 }
 
 #endif // CUTE_OPS
+
+//===----------------------------------------------------------------------===//
+// Layout Product Operations
+//===----------------------------------------------------------------------===//
+
+def Cute_LogicalProductOp : Cute_Op<"logical_product", []> {
+  let summary = "Compute logical product of layout with tiler";
+  let description = [{
+    Computes the logical product of a layout and a tiler layout.
+    This applies the tiler to the layout in a mode-wise fashion.
+    Example: %result = cute.logical_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+def Cute_ZippedProductOp : Cute_Op<"zipped_product", []> {
+  let summary = "Compute zipped product of layout with tiler";
+  let description = [{
+    Computes the zipped product of a layout and a tiler layout.
+    This interleaves the modes of the input and tiler.
+    Example: %result = cute.zipped_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+def Cute_TiledProductOp : Cute_Op<"tiled_product", []> {
+  let summary = "Compute tiled product of layout with tiler";
+  let description = [{
+    Computes the tiled product of a layout and a tiler layout.
+    This creates a hierarchical tiled layout.
+    Example: %result = cute.tiled_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+def Cute_FlatProductOp : Cute_Op<"flat_product", []> {
+  let summary = "Compute flat product of layout with tiler";
+  let description = [{
+    Computes the flat product of a layout and a tiler layout.
+    This produces a flattened layout from the product.
+    Example: %result = cute.flat_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+def Cute_RakedProductOp : Cute_Op<"raked_product", []> {
+  let summary = "Compute raked product of layout with tiler";
+  let description = [{
+    Computes the raked product of a layout and a tiler layout.
+    This creates a raked memory access pattern.
+    Example: %result = cute.raked_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+def Cute_BlockedProductOp : Cute_Op<"blocked_product", []> {
+  let summary = "Compute blocked product of layout with tiler";
+  let description = [{
+    Computes the blocked product of a layout and a tiler layout.
+    This creates a blocked memory access pattern.
+    Example: %result = cute.blocked_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+
+//===----------------------------------------------------------------------===//
+// Layout Divide Operations
+//===----------------------------------------------------------------------===//
+
+def Cute_LogicalDivideOp : Cute_Op<"logical_divide", []> {
+  let summary = "Logically divide a layout by a tiler";
+  let description = [{
+    Divides a layout logically by a tiler, creating a partitioned view.
+    This is commonly used for tiling tensor operations.
+    Example: %result = cute.logical_divide %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+def Cute_ZippedDivideOp : Cute_Op<"zipped_divide", []> {
+  let summary = "Divide a layout by a tiler with zipped semantics";
+  let description = [{
+    Divides a layout by a tiler using zipped division semantics.
+    This interleaves the division across modes.
+    Example: %result = cute.zipped_divide %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+def Cute_TiledDivideOp : Cute_Op<"tiled_divide", []> {
+  let summary = "Divide a layout by a tiler with tiled semantics";
+  let description = [{
+    Divides a layout by a tiler creating a hierarchical tiled division.
+    This is the dual of tiled_product.
+    Example: %result = cute.tiled_divide %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+
+def Cute_FlatDivideOp : Cute_Op<"flat_divide", []> {
+  let summary = "Divide a layout by a tiler with flat semantics";
+  let description = [{
+    Divides a layout by a tiler creating a flattened division.
+    This produces a flat result from the division.
+    Example: %result = cute.flat_divide %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+  }];
+  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
+  let results = (outs Cute_LayoutType:$result);
+  let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
+}
+

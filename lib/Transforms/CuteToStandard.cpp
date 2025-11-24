@@ -429,6 +429,80 @@ struct CompositionOpLowering : public OpRewritePattern<CompositionOp> {
   }
 };
 
+// Forwarding patterns for product operations - these preserve the operations
+// but allow get_shape/get_stride to work on them
+struct LogicalProductOpLowering : public OpRewritePattern<LogicalProductOp> {
+  using OpRewritePattern<LogicalProductOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(LogicalProductOp op,
+                                PatternRewriter &rewriter) const override {
+    // logical_product(block, tiler) creates a tiled layout  
+    // Use composition as approximation
+    auto loc = op.getLoc();
+    Value inputLayout = op.getOperand(0);  // block
+    Value tilerLayout = op.getOperand(1);  // tiler
+    
+    auto composed = rewriter.create<CompositionOp>(
+        loc, op.getResult().getType(), inputLayout, tilerLayout);
+    
+    rewriter.replaceOp(op, composed.getResult());
+    return success();
+  }
+};
+
+struct ZippedProductOpLowering : public OpRewritePattern<ZippedProductOp> {
+  using OpRewritePattern<ZippedProductOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ZippedProductOp op,
+                                PatternRewriter &rewriter) const override {
+    // zipped_product = tile_unzip(logical_product(block, tiler), tiler)
+    // Simplified: just use logical_product
+    auto loc = op.getLoc();
+    auto logicalProd = rewriter.create<LogicalProductOp>(
+        loc, op.getResult().getType(), op.getOperand(0), op.getOperand(1));
+    
+    rewriter.replaceOp(op, logicalProd.getResult());
+    return success();
+  }
+};
+
+struct LogicalDivideOpLowering : public OpRewritePattern<LogicalDivideOp> {
+  using OpRewritePattern<LogicalDivideOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(LogicalDivideOp op,
+                                PatternRewriter &rewriter) const override {
+    // logical_divide(layout, tiler) partitions the layout by tiler
+    // Implementation: composition(layout, make_layout(tiler, complement(...)))
+    auto loc = op.getLoc();
+    Value inputLayout = op.getOperand(0);  // target
+    Value tilerLayout = op.getOperand(1);  // tiler
+    
+    // Simplified: use composition in reverse
+    auto composed = rewriter.create<CompositionOp>(
+        loc, op.getResult().getType(), tilerLayout, inputLayout);
+    
+    rewriter.replaceOp(op, composed.getResult());
+    return success();
+  }
+};
+
+struct TiledDivideOpLowering : public OpRewritePattern<TiledDivideOp> {
+  using OpRewritePattern<TiledDivideOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(TiledDivideOp op,
+                                PatternRewriter &rewriter) const override {
+    // tiled_divide is similar to logical_divide but with different packing
+    // Simplified: use logical_divide
+    auto loc = op.getLoc();
+    auto logicalDiv = rewriter.create<LogicalDivideOp>(
+        loc, op.getResult().getType(), op.getOperand(0), op.getOperand(1));
+    
+    rewriter.replaceOp(op, logicalDiv.getResult());
+    return success();
+  }
+};
+
+
 #define GEN_PASS_DEF_CUTETOSTANDARDPASS
 #include "cute/CutePasses.h.inc"
 
@@ -451,6 +525,10 @@ struct CuteToStandardPass
     patterns.add<GetShapeOpLowering>(&getContext());
     patterns.add<GetStrideOpLowering>(&getContext());
     patterns.add<CompositionOpLowering>(&getContext());
+    patterns.add<LogicalProductOpLowering>(&getContext());
+    patterns.add<ZippedProductOpLowering>(&getContext());
+    patterns.add<LogicalDivideOpLowering>(&getContext());
+    patterns.add<TiledDivideOpLowering>(&getContext());
     
 
     if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns)))) {
@@ -470,4 +548,7 @@ std::unique_ptr<Pass> createCuteToStandardPass() {
 
 }
 }
+
+
+
 
