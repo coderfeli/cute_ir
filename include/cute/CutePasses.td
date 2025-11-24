@@ -490,4 +490,15 @@ def CuteFullLoweringPipeline : PassPipeline<"cute-full-lowering"> {
   ];
 }
 
+def CuteToRocmPass : Pass<"cute-to-rocm", "::mlir::ModuleOp"> {
+  let summary = "Lower CuTe IR to ROCm-specific dialects";
+  let description = [{
+    Converts cute_ir operations to cute_rocm_ir operations for AMD GFX942.
+  }];
+  let constructor = "mlir::cute::createCuteToRocmPass()";
+  let dependentDialects = [
+    "::mlir::cute::rocm::CuteRocmDialect"
+  ];
+}
+
 #endif // CUTE_PASSES

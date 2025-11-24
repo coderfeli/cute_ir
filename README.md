@@ -10,11 +10,8 @@ A complete MLIR-based compiler infrastructure for CuTe (CUDA Template Library), 
 ## 🎯 Features
 
 - **Complete MLIR Dialects**: `cute_ir` (Layout algebra) + `cute_nvgpu_ir` (GPU hardware)
-- **115+ Operations**: Multi-dimensional layouts, tensor operations, MMA, TMA
-- **18 Pass Pipeline**: Full lowering from high-level layouts to executable kernels
 - **C++ Runtime**: Kernel compilation, execution, and memory management
 - **Python API**: High-level interface with NumPy integration
-- **Multi-Architecture**: Support for Ampere (SM80), Hopper (SM90), Blackwell (SM100)
 
 ## 📦 Quick Start
 
@@ -50,17 +47,6 @@ A = np.random.randn(M, K).astype(np.float16)
 B = np.random.randn(K, N).astype(np.float16)
 C = gemm(A, B)  # Returns (M, N) float32 array
 ```
-
-## 📊 Project Statistics
-
-| Component | Files | Lines | Status |
-|-----------|-------|-------|--------|
-| TableGen Definitions | 5 | 1,900 | ✅ Complete |
-| Pass Definitions | 1 | 493 | ✅ Complete |
-| Pass Implementations | 2 | 609 | ⚠️ Partial (2/18) |
-| C++ Runtime | 3 | 719 | ✅ Complete |
-| Python Bindings | 3 | 791 | ✅ Complete |
-| **Total** | **28+** | **~8,000** | **✅ Production Ready** |
 
 ## 🗂️ Project Structure
 
@@ -106,37 +92,13 @@ PTX Assembly
 CUBIN Binary (Executable)
 ```
 
-## 📚 Documentation
-
-- **[INSTALL.md](docs/INSTALL.md)** - Installation guide
-- **[API_INTEGRATION.md](docs/API_INTEGRATION.md)** - API usage
-- **[PROJECT_SUMMARY.md](docs/PROJECT_SUMMARY.md)** - Complete overview
-- **[PassPipeline.md](docs/PassPipeline.md)** - Compilation pipeline
-- **[PASSES_SUMMARY.md](docs/PASSES_SUMMARY.md)** - Pass definitions
-
 ## 🛠️ Prerequisites
 
-- **CUDA Toolkit 11.0+**
 - **CMake 3.18+**
 - **Python 3.8+**
 - **C++17 compiler**
 - **MLIR/LLVM** (optional, for full compilation)
 
-## 🎯 Supported Hardware
-
-| GPU | Compute Capability | Features |
-|-----|-------------------|----------|
-| Ampere (A100) | SM80 (8.0) | FP16/BF16/TF32 MMA |
-| Hopper (H100) | SM90 (9.0) | Warpgroup MMA, TMA |
-| Blackwell | SM100 (10.0) | TCGEN05 MMA |
-
-## 🤝 Contributing
-
-Contributions welcome! Areas:
-- Implement remaining passes (16 passes defined, 2 implemented)
-- Add operation lowering patterns
-- Create more examples
-- Improve documentation
 
 ## 📄 License
 
@@ -151,6 +113,4 @@ Built on:
 
 ---
 
-**Status**: ✅ Production ready (partial pass implementation)  
 **Version**: 0.1.0  
-**Last Updated**: November 2025
