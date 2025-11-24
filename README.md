@@ -21,10 +21,15 @@ A modern MLIR-based compiler infrastructure for high performance rocm kernels, p
 
 ```bash
 # Inside Docker container
+cpp test:
 cd rocdsl
 mkdir -p build && cd build
 cmake .. -DMLIR_DIR=/mnt/raid0/felix/llvm-project/buildmlir/lib/cmake/mlir
 make -j; make cute-opt -j
+
+python test:
+cd python
+python setup.py develop
 ```
 
 ### Test
@@ -41,6 +46,9 @@ make -j; make cute-opt -j
 
 # Run transformation pass
 ./build/tools/cute-opt/cute-opt tests/test_pass.mlir --cute-to-standard
+
+# run python test
+pytest -sv tests/python/test_cute_basic.py
 ```
 
 ## 📝 Example Usage

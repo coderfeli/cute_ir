@@ -117,3 +117,32 @@ else
     echo "   ✓ Composition + crd2idx = 10"
   fi
 fi
+
+echo ""
+echo "========================================"
+echo "Python Test Suite"
+echo "========================================"
+echo ""
+
+# Set up Python environment
+export PYTHONPATH=$PYTHONPATH:/mnt/raid0/felix/llvm-project/buildmlir/tools/mlir/python_packages/mlir_core
+export PYTHONPATH=$PYTHONPATH:/mnt/raid0/felix/cute_ir_tablegen/build/python_bindings
+export PYTHONPATH=$PYTHONPATH:/mnt/raid0/felix/cute_ir_tablegen/python
+
+echo "Running Python tests with pytest..."
+python3 -m pytest tests/python/ -v --tb=short
+
+PYTEST_EXIT=$?
+
+echo ""
+echo "========================================"
+echo "Overall Test Summary"
+echo "========================================"
+if [ $PYTEST_EXIT -eq 0 ]; then
+    echo "✅ All Python tests passed"
+else
+    echo "⚠️  Some Python tests failed (exit code: $PYTEST_EXIT)"
+fi
+echo "========================================"
+
+exit $PYTEST_EXIT
