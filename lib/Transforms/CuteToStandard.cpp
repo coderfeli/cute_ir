@@ -1,4 +1,5 @@
 #include "cute/CuteDialect.h"
+#include "cute/CuteOps.h.inc"
 #include "cute/CutePasses.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -367,6 +368,67 @@ struct MakeOpLowering : public RewritePattern {
   }
 };
 
+// Lower cute.composition to create composed layout
+struct CompositionOpLowering : public OpRewritePattern<CompositionOp> {
+  using OpRewritePattern<CompositionOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(CompositionOp op,
+                                PatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    Value layoutA = op.getOperand(0);
+    Value layoutB = op.getOperand(1);
+    
+    // Get defining operations
+    auto *layoutAOp = layoutA.getDefiningOp();
+    auto *layoutBOp = layoutB.getDefiningOp();
+    
+    if (!layoutAOp || !layoutBOp)
+      return failure();
+    if (layoutAOp->getName().getStringRef() != "cute.make_layout" ||
+        layoutBOp->getName().getStringRef() != "cute.make_layout")
+      return failure();
+    
+    // Extract shape and stride from both layouts
+    auto *shapeAOp = layoutAOp->getOperand(0).getDefiningOp();
+    auto *strideAOp = layoutAOp->getOperand(1).getDefiningOp();
+    auto *shapeBOp = layoutBOp->getOperand(0).getDefiningOp();
+    auto *strideBOp = layoutBOp->getOperand(1).getDefiningOp();
+    
+    if (!shapeAOp || !strideAOp || !shapeBOp || !strideBOp)
+      return failure();
+    
+    auto shapeAVals = shapeAOp->getOperands();
+    auto strideAVals = strideAOp->getOperands();
+    auto shapeBVals = shapeBOp->getOperands();
+    auto strideBVals = strideBOp->getOperands();
+    
+    // Composition: result.shape = shapeB, result.stride[i] = strideB[i] * strideA[i]
+    if (strideAVals.size() != strideBVals.size())
+      return failure();
+    
+    // Compute composed strides: strideB[i] * strideA[i]
+    SmallVector<Value> composedStrides;
+    for (size_t i = 0; i < strideBVals.size(); ++i) {
+      auto mul = rewriter.create<arith::MulIOp>(loc, strideBVals[i], strideAVals[i]);
+      composedStrides.push_back(mul.getResult());
+    }
+    
+    // Create new shape and stride
+    auto resultType = op.getResult().getType();
+    auto shapeType = layoutBOp->getOperand(0).getType();
+    auto strideType = layoutBOp->getOperand(1).getType();
+    
+    auto newShape = rewriter.create<MakeShapeOp>(loc, shapeType, shapeBVals);
+    auto newStride = rewriter.create<MakeStrideOp>(loc, strideType, composedStrides);
+    auto newLayout = rewriter.create<MakeLayoutOp>(loc, resultType, 
+                                                    newShape.getResult(), 
+                                                    newStride.getResult());
+    
+    rewriter.replaceOp(op, newLayout.getResult());
+    return success();
+  }
+};
+
 #define GEN_PASS_DEF_CUTETOSTANDARDPASS
 #include "cute/CutePasses.h.inc"
 
@@ -388,6 +450,7 @@ struct CuteToStandardPass
     patterns.add<Idx2CrdOpLowering>(&getContext());
     patterns.add<GetShapeOpLowering>(&getContext());
     patterns.add<GetStrideOpLowering>(&getContext());
+    patterns.add<CompositionOpLowering>(&getContext());
     
 
     if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns)))) {
@@ -407,3 +470,4 @@ std::unique_ptr<Pass> createCuteToStandardPass() {
 
 }
 }
+

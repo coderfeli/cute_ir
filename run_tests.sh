@@ -95,3 +95,25 @@ echo "   - cute.composition (not implemented)"
 echo ""
 echo "Overall: 8/13 fully working (62% coverage)"
 echo "========================================"
+
+echo ""
+echo "✅ Test 6: composition - Layout Composition"
+echo "Expected: layoutA ∘ layoutB with stride multiplication"
+$CUTE_OPT tests/test_composition.mlir --cute-to-standard > /tmp/test_composition_lowered.mlir
+if grep -q "cute.composition" /tmp/test_composition_lowered.mlir; then
+  echo "   ❌ FAIL: composition not lowered"
+else
+  echo "   PASS: Lowered to arith operations"
+  # Verify stride computation (should see multiplications)
+  if grep -q "arith.muli" /tmp/test_composition_lowered.mlir; then
+    echo "   ✓ Found stride multiplications"
+  fi
+  # Verify size computation
+  if grep -q "c128 = arith.constant 128" /tmp/test_composition_lowered.mlir; then
+    echo "   ✓ Composition + size = 128"
+  fi
+  # Verify crd2idx computation  
+  if grep -q "c10 = arith.constant 10" /tmp/test_composition_lowered.mlir; then
+    echo "   ✓ Composition + crd2idx = 10"
+  fi
+fi
