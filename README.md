@@ -181,3 +181,29 @@ Built on:
 ---
 
 **Version**: 0.2.0-alpha | **MLIR**: amd-staging (04f968b02917)
+
+## Running Tests
+
+All test files have been organized in the `tests/` directory:
+
+```bash
+# Run all tests with the test suite
+./run_tests.sh
+
+# Or run individual tests
+./build/tools/cute-opt/cute-opt --cute-to-standard tests/test_crd2idx.mlir
+./build/tools/cute-opt/cute-opt --cute-to-standard tests/test_size.mlir
+./build/tools/cute-opt/cute-opt --cute-to-standard tests/test_rank.mlir
+./build/tools/cute-opt/cute-opt --cute-to-standard tests/test_cosize.mlir
+./build/tools/cute-opt/cute-opt --cute-to-standard tests/comprehensive_test.mlir
+```
+
+### Test Coverage
+
+- ✅ **test_crd2idx.mlir** - Coordinate to linear index conversion
+- ✅ **test_size.mlir** - Shape size computation (product of dimensions)
+- ✅ **test_rank.mlir** - Rank extraction (compile-time constant)
+- ✅ **test_cosize.mlir** - Codomain size (max span computation)
+- ✅ **comprehensive_test.mlir** - All operations together
+
+All tests pass with optimal lowering to standard MLIR arithmetic operations.
