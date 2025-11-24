@@ -1,17 +1,17 @@
-# CuTe IR - MLIR Compiler Infrastructure for CUDA Template Library
+# ROCDSL - MLIR Compiler Infrastructure for high performance rocm kernels
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)]()
 [![MLIR](https://img.shields.io/badge/MLIR-amd--staging-orange)]()
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)]()
 
-A modern MLIR-based compiler infrastructure for CuTe (CUDA Template Library), providing a high-level IR for layout algebra and tensor operations with hardware-specific optimizations.
+A modern MLIR-based compiler infrastructure for high performance rocm kernels, providing a high-level IR for layout algebra and tensor operations with hardware-specific optimizations.
 
 ## 🎯 Features
 
 - **CuTe Dialect**: Layout algebra IR with custom types and operations
   - Type system: `!cute.int`, `!cute.shape<N>`, `!cute.stride<N>`, `!cute.layout<N>`, `!cute.coord<N>`
   - Operations: `make_shape`, `make_stride`, `make_layout`, `make_coord`, `size`, `crd2idx`
-- **Transformation Passes**: Lowering CuTe IR to standard MLIR dialects
+- **Transformation Passes**: Lowering ROCDSL to standard MLIR dialects
 - **cute-opt Tool**: MLIR optimization and transformation tool
 - **Modern MLIR API**: Built with latest MLIR (amd-staging branch)
 
@@ -21,7 +21,7 @@ A modern MLIR-based compiler infrastructure for CuTe (CUDA Template Library), pr
 
 ```bash
 # Inside Docker container
-cd cute_ir_tablegen
+cd rocdsl
 mkdir -p build && cd build
 cmake .. -DMLIR_DIR=/mnt/raid0/felix/llvm-project/buildmlir/lib/cmake/mlir
 make -j8
@@ -92,7 +92,7 @@ module {
 ## 🗂️ Project Structure
 
 ```
-cute_ir_tablegen/
+rocdsl/
 ├── include/cute/          # Dialect definitions (TableGen)
 │   ├── CuteDialect.h      # Dialect and type declarations (5 types)
 │   ├── CuteDialect.td     # Dialect definition with custom type parsing
@@ -141,7 +141,7 @@ cute_ir_tablegen/
 
 | Pass | Flag | Status | Description |
 |------|------|--------|-------------|
-| `CuteToStandardPass` | `--cute-to-standard` | ✅ Partial | Lower CuTe IR to standard dialects (only `crd2idx` implemented) |
+| `CuteToStandardPass` | `--cute-to-standard` | ✅ Partial | Lower ROCDSL to standard dialects (only `crd2idx` implemented) |
 | `CuteToRocmPass` | `--cute-to-rocm` | ⚠️ Skeleton | Lower to ROCm-specific operations |
 | `CuteNvgpuToNvgpuPass` | `--cute-nvgpu-to-nvgpu` | ⚠️ Skeleton | Lower to NVGPU dialect |
 

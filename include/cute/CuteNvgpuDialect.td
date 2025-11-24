@@ -1,7 +1,7 @@
 //===- CuteNvgpuDialect.td - CuTe NVGPU Dialect Definition --*- tablegen -*-===//
 //
 // CuTe GPU Hardware-Aware Dialect
-// Extends cute_ir with GPU-specific types that wrap MLIR nvgpu operations
+// Extends rocdsl with GPU-specific types that wrap MLIR nvgpu operations
 //
 //===----------------------------------------------------------------------===//
 
@@ -21,11 +21,11 @@ def CuteNvgpu_Dialect : Dialect {
   let cppNamespace = "::mlir::cute::nvgpu";
   let summary = "GPU hardware-aware CuTe IR";
   let description = [{
-    CuTe NVGPU IR extends cute_ir with GPU-specific types and operations.
+    CuTe NVGPU IR extends rocdsl with GPU-specific types and operations.
     It wraps MLIR nvgpu operations with CuTe Layout-aware interfaces.
     
     **Design Philosophy**: 
-    - Accepts cute_ir::LayoutType/TileType as partition descriptors
+    - Accepts rocdsl::LayoutType/TileType as partition descriptors
     - Encodes GPU instruction metadata (shape, element types, layout)
     - Generates architecture-specific code (SM80/SM90/SM100)
     
@@ -126,14 +126,14 @@ def CuteNvgpu_TiledMmaType : CuteNvgpu_Type<"TiledMma", "tiled_mma"> {
     
     Composition:
     - atom: underlying MMA instruction
-    - layout_v: thread value layout (from cute_ir)
-    - tiler_mnk: hierarchical tiling (from cute_ir)
+    - layout_v: thread value layout (from rocdsl)
+    - tiler_mnk: hierarchical tiling (from rocdsl)
   }];
   
   let parameters = (ins
     "CuteNvgpu_MmaAtomType":$atom,
-    "Type":$layout_v,  // cute_ir::LayoutType
-    "Type":$tiler_mnk  // cute_ir::TileType
+    "Type":$layout_v,  // rocdsl::LayoutType
+    "Type":$tiler_mnk  // rocdsl::TileType
   );
   
   let assemblyFormat = "`<` $atom `,` $layout_v `,` $tiler_mnk `>`";

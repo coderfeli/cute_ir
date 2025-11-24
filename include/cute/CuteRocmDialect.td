@@ -1,7 +1,7 @@
 //===- CuteRocmDialect.td - CuTe ROCm Dialect Definition ---*- tablegen -*-===//
 //
 // CuTe AMD GPU Hardware-Aware Dialect for GFX942
-// Extends cute_ir with AMD ROCm-specific types and operations
+// Extends rocdsl with AMD ROCm-specific types and operations
 //
 //===----------------------------------------------------------------------===//
 
@@ -21,11 +21,11 @@ def CuteRocm_Dialect : Dialect {
   let cppNamespace = "::mlir::cute::rocm";
   let summary = "AMD GPU hardware-aware CuTe IR for GFX942";
   let description = [{
-    CuTe ROCm IR extends cute_ir with AMD GPU-specific types and operations.
+    CuTe ROCm IR extends rocdsl with AMD GPU-specific types and operations.
     It targets AMD GFX942 (MI300 series) matrix cores with CuTe Layout-aware interfaces.
     
     **Design Philosophy**: 
-    - Accepts cute_ir::LayoutType/TileType as partition descriptors
+    - Accepts rocdsl::LayoutType/TileType as partition descriptors
     - Encodes AMD MFMA instruction metadata (shape, element types, layout)
     - Generates architecture-specific code for GFX942
     

@@ -1,6 +1,6 @@
 //===- CuteToRocm.cpp - Lower CuTe IR to ROCm Dialect --------------------===//
 //
-// This pass converts cute_ir operations to cute_rocm dialect for GFX942
+// This pass converts rocdsl operations to cute_rocm dialect for GFX942
 //
 //===----------------------------------------------------------------------===//
 

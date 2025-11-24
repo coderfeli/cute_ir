@@ -1,7 +1,7 @@
 //===- CutePasses.td - CuTe IR Lowering Passes ------------*- tablegen -*-===//
 //
 // Lowering passes for CuTe IR dialects
-// Transformation chain: cute_ir → gpu/scf → nvgpu → nvvm → LLVM IR
+// Transformation chain: rocdsl → gpu/scf → nvgpu → nvvm → LLVM IR
 //
 //===----------------------------------------------------------------------===//
 
@@ -11,13 +11,13 @@
 include "mlir/Pass/PassBase.td"
 
 //===----------------------------------------------------------------------===//
-// cute_ir → Standard Dialects (scf, arith, memref)
+// rocdsl → Standard Dialects (scf, arith, memref)
 //===----------------------------------------------------------------------===//
 
 def CuteToStandardPass : Pass<"cute-to-standard", "::mlir::ModuleOp"> {
   let summary = "Lower CuTe IR to standard MLIR dialects";
   let description = [{
-    Converts cute_ir operations to combinations of:
+    Converts rocdsl operations to combinations of:
     - scf.for for iteration over layouts
     - arith for coordinate/index arithmetic
     - memref for tensor data access
@@ -447,7 +447,7 @@ def CuteAtomValidationPass : Pass<"cute-atom-validation", "::mlir::ModuleOp"> {
 def CuteToRocmPass : Pass<"cute-to-rocm", "::mlir::ModuleOp"> {
   let summary = "Lower CuTe IR to ROCm-specific dialects";
   let description = [{
-    Converts cute_ir operations to cute_rocm_ir operations for AMD GFX942.
+    Converts rocdsl operations to cute_rocm_ir operations for AMD GFX942.
   }];
   let constructor = "mlir::cute::createCuteToRocmPass()";
   let dependentDialects = [

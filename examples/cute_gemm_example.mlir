@@ -12,7 +12,7 @@ module @cute_gemm {
   ) {
     
     //===--------------------------------------------------------------===//
-    // Step 1: Define Layouts (cute_ir)
+    // Step 1: Define Layouts (rocdsl)
     //===--------------------------------------------------------------===//
     
     // Matrix A: (M, K) with row-major layout
@@ -34,7 +34,7 @@ module @cute_gemm {
       : !cute.layout<(?, ?), (?, 1)>
     
     //===--------------------------------------------------------------===//
-    // Step 2: Create Tensors (cute_ir)
+    // Step 2: Create Tensors (rocdsl)
     //===--------------------------------------------------------------===//
     
     %tensor_A = cute.make_tensor %A_ptr, %layout_A 
@@ -92,7 +92,7 @@ module @cute_gemm {
       : !cute_nvgpu.tma_load_exec<...>
     
     //===--------------------------------------------------------------===//
-    // Step 5: Thread Partitioning (cute_ir)
+    // Step 5: Thread Partitioning (rocdsl)
     //===--------------------------------------------------------------===//
     
     %thread_idx = gpu.thread_id : index
