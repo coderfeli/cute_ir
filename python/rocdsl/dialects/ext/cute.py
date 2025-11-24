@@ -24,6 +24,19 @@ def _get_location(loc: Optional[Location] = None) -> Location:
     return loc
 
 
+
+def _unwrap_value(v):
+    """Unwrap ArithValue or other value wrappers to get underlying MLIR Value."""
+    if hasattr(v, 'value') and callable(getattr(type(v).value, 'fget', None)):
+        # It's a property, call it
+        return v.value
+    elif hasattr(v, '_value'):
+        # Direct attribute access
+        return v._value
+    else:
+        # Already a Value or compatible
+        return v
+
 def _get_insertion_point(ip: Optional[InsertionPoint] = None) -> InsertionPoint:
     """Get insertion point, using current if none provided."""
     if ip is None:
@@ -70,6 +83,7 @@ class LayoutType(Type):
         return Type.parse(f"!cute.layout<{rank}>", context=context)
 
 
+
 def make_shape(*dims: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
     """Create a shape from dimension values.
     
@@ -93,7 +107,7 @@ def make_shape(*dims: Value, loc: Optional[Location] = None, ip: Optional[Insert
     result_type = ShapeType.get(rank)
     
     with ip or InsertionPoint.current:
-        return cute_ops.MakeShapeOp(result_type, list(dims), loc=loc).result
+        return cute_ops.MakeShapeOp(result_type, [_unwrap_value(d) for d in dims], loc=loc).result
 
 
 def make_stride(*strides: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -119,7 +133,7 @@ def make_stride(*strides: Value, loc: Optional[Location] = None, ip: Optional[In
     result_type = StrideType.get(rank)
     
     with ip or InsertionPoint.current:
-        return cute_ops.MakeStrideOp(result_type, list(strides), loc=loc).result
+        return cute_ops.MakeStrideOp(result_type, [_unwrap_value(s) for s in strides], loc=loc).result
 
 
 def make_layout(shape: Value, stride: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -148,7 +162,7 @@ def make_layout(shape: Value, stride: Value, loc: Optional[Location] = None, ip:
     result_type = LayoutType.get(rank)
     
     with ip or InsertionPoint.current:
-        return cute_ops.MakeLayoutOp(result_type, shape, stride, loc=loc).result
+        return cute_ops.MakeLayoutOp(result_type, _unwrap_value(shape), stride, loc=loc).result
 
 
 def size(shape_or_layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -172,7 +186,7 @@ def size(shape_or_layout: Value, loc: Optional[Location] = None, ip: Optional[In
     result_type = IndexType.get()
     
     with ip or InsertionPoint.current:
-        return cute_ops.SizeOp(result_type, shape_or_layout, loc=loc).result
+        return cute_ops.SizeOp(result_type, _unwrap_value(shape_or_layout), loc=loc).result
 
 
 def cosize(layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -192,7 +206,7 @@ def cosize(layout: Value, loc: Optional[Location] = None, ip: Optional[Insertion
     result_type = IndexType.get()
     
     with ip or InsertionPoint.current:
-        return cute_ops.CosizeOp(result_type, layout, loc=loc).result
+        return cute_ops.CosizeOp(result_type, _unwrap_value(layout), loc=loc).result
 
 
 def rank(shape_or_layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -212,7 +226,7 @@ def rank(shape_or_layout: Value, loc: Optional[Location] = None, ip: Optional[In
     result_type = IndexType.get()
     
     with ip or InsertionPoint.current:
-        return cute_ops.RankOp(result_type, shape_or_layout, loc=loc).result
+        return cute_ops.RankOp(result_type, _unwrap_value(shape_or_layout), loc=loc).result
 
 
 def get_shape(layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -235,7 +249,7 @@ def get_shape(layout: Value, loc: Optional[Location] = None, ip: Optional[Insert
     result_type = ShapeType.get(rank)
     
     with ip or InsertionPoint.current:
-        return cute_ops.GetShapeOp(result_type, layout, loc=loc).result
+        return cute_ops.GetShapeOp(result_type, _unwrap_value(layout), loc=loc).result
 
 
 def get_stride(layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -258,7 +272,7 @@ def get_stride(layout: Value, loc: Optional[Location] = None, ip: Optional[Inser
     result_type = StrideType.get(rank)
     
     with ip or InsertionPoint.current:
-        return cute_ops.GetStrideOp(result_type, layout, loc=loc).result
+        return cute_ops.GetStrideOp(result_type, _unwrap_value(layout), loc=loc).result
 
 
 def composition(layout_a: Value, layout_b: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -283,7 +297,7 @@ def composition(layout_a: Value, layout_b: Value, loc: Optional[Location] = None
     result_type = layout_a.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.CompositionOp(result_type, layout_a, layout_b, loc=loc).result
+        return cute_ops.CompositionOp(result_type, _unwrap_value(layout_a), layout_b, loc=loc).result
 
 
 # Product operations
@@ -306,7 +320,7 @@ def logical_product(block: Value, tiler: Value, loc: Optional[Location] = None, 
     result_type = block.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.LogicalProductOp(result_type, block, tiler, loc=loc).result
+        return cute_ops.LogicalProductOp(result_type, _unwrap_value(block), tiler, loc=loc).result
 
 
 def zipped_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -317,7 +331,7 @@ def zipped_product(block: Value, tiler: Value, loc: Optional[Location] = None, i
     result_type = block.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.ZippedProductOp(result_type, block, tiler, loc=loc).result
+        return cute_ops.ZippedProductOp(result_type, _unwrap_value(block), tiler, loc=loc).result
 
 
 def tiled_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -328,7 +342,7 @@ def tiled_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip
     result_type = block.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.TiledProductOp(result_type, block, tiler, loc=loc).result
+        return cute_ops.TiledProductOp(result_type, _unwrap_value(block), tiler, loc=loc).result
 
 
 def flat_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -339,7 +353,7 @@ def flat_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip:
     result_type = block.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.FlatProductOp(result_type, block, tiler, loc=loc).result
+        return cute_ops.FlatProductOp(result_type, _unwrap_value(block), tiler, loc=loc).result
 
 
 def raked_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -350,7 +364,7 @@ def raked_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip
     result_type = block.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.RakedProductOp(result_type, block, tiler, loc=loc).result
+        return cute_ops.RakedProductOp(result_type, _unwrap_value(block), tiler, loc=loc).result
 
 
 def blocked_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -361,7 +375,7 @@ def blocked_product(block: Value, tiler: Value, loc: Optional[Location] = None, 
     result_type = block.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.BlockedProductOp(result_type, block, tiler, loc=loc).result
+        return cute_ops.BlockedProductOp(result_type, _unwrap_value(block), tiler, loc=loc).result
 
 
 # Divide operations
@@ -384,7 +398,7 @@ def logical_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, 
     result_type = layout.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.LogicalDivideOp(result_type, layout, tiler, loc=loc).result
+        return cute_ops.LogicalDivideOp(result_type, _unwrap_value(layout), tiler, loc=loc).result
 
 
 def zipped_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -395,7 +409,7 @@ def zipped_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, i
     result_type = layout.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.ZippedDivideOp(result_type, layout, tiler, loc=loc).result
+        return cute_ops.ZippedDivideOp(result_type, _unwrap_value(layout), tiler, loc=loc).result
 
 
 def tiled_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -406,7 +420,7 @@ def tiled_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, ip
     result_type = layout.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.TiledDivideOp(result_type, layout, tiler, loc=loc).result
+        return cute_ops.TiledDivideOp(result_type, _unwrap_value(layout), tiler, loc=loc).result
 
 
 def flat_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -417,7 +431,7 @@ def flat_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, ip:
     result_type = layout.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.FlatDivideOp(result_type, layout, tiler, loc=loc).result
+        return cute_ops.FlatDivideOp(result_type, _unwrap_value(layout), tiler, loc=loc).result
 
 
 # Local operations
@@ -445,7 +459,7 @@ def local_partition(layout: Value, tile: Value, index: Value, loc: Optional[Loca
     result_type = layout.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.LocalPartitionOp(result_type, layout, tile, index, loc=loc).result
+        return cute_ops.LocalPartitionOp(result_type, _unwrap_value(layout), _unwrap_value(tile), _unwrap_value(index), loc=loc).result
 
 
 def local_tile(layout: Value, tiler: Value, coord: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -471,7 +485,7 @@ def local_tile(layout: Value, tiler: Value, coord: Value, loc: Optional[Location
     result_type = layout.type
     
     with ip or InsertionPoint.current:
-        return cute_ops.LocalTileOp(result_type, layout, tiler, coord, loc=loc).result
+        return cute_ops.LocalTileOp(result_type, _unwrap_value(layout), _unwrap_value(tiler), _unwrap_value(coord), loc=loc).result
 
 
 __all__ = [

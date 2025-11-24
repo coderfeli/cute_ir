@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
 """
-CuTe Runtime Python Package Setup
-==================================
+RocDSL / CuTe IR Setup
+======================
 
-Build and install the CuTe runtime Python bindings.
-Supports AMD ROCm/HIP (default) and NVIDIA CUDA.
-
-Build:
-    python setup.py build_ext --inplace
-
-Install:
-    pip install .
-
-Development:
-    pip install -e .
+Builds and installs the Python bindings and C++ tools.
+Merges logic from python/setup.py and root setup.py.
 """
 
+import os
+import sys
+import subprocess
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
-import sys
-import os
-import subprocess
+
+def load_requirements():
+    requirements = []
+    if os.path.exists("python/requirements.txt"):
+        with open("python/requirements.txt") as f:
+            requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    return requirements
 
 class CMakeExtension(Extension):
     """Custom extension type for CMake-based builds."""
@@ -39,16 +37,7 @@ class CMakeBuild(build_ext):
         except OSError:
             raise RuntimeError("CMake must be installed to build CuTe runtime")
         
-        # Check ROCm is available (AMD GPU)
-        rocm_path = os.environ.get('ROCM_PATH', '/opt/rocm')
-        if not os.path.exists(rocm_path):
-            print(f"Warning: ROCm not found at {rocm_path}")
-            print("Building without GPU runtime support")
-        else:
-            print(f"Found ROCm at {rocm_path}")
-        
-        for ext in self.extensions:
-            self.build_extension(ext)
+        super().run()
     
     def build_extension(self, ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
@@ -76,23 +65,25 @@ class CMakeBuild(build_ext):
             cmake_args.append('-DBUILD_RUNTIME=OFF')
             print("Building without GPU runtime")
         
-        # MLIR path (if available)
-        mlir_path = os.environ.get('MLIR_INSTALL_DIR')
-        if not mlir_path:
-            # Try to find MLIR in common locations
-            for path in ['/mnt/raid0/felix/llvm-project/buildmlir',
-                        '/usr/local/lib/cmake/mlir',
+        # MLIR path configuration
+        # Default to the path provided by user
+        default_mlir_path = '/mnt/raid0/felix/llvm-project/buildmlir'
+        mlir_path = os.environ.get('MLIR_INSTALL_DIR', default_mlir_path)
+        
+        if not os.path.exists(mlir_path) and not os.environ.get('MLIR_INSTALL_DIR'):
+             # Try to find MLIR in common locations if default doesn't exist
+            for path in ['/usr/local/lib/cmake/mlir',
                         '/usr/lib/llvm-*/lib/cmake/mlir']:
                 if os.path.exists(path):
                     mlir_path = path
                     break
-        
-        if mlir_path:
+
+        if mlir_path and os.path.exists(mlir_path):
             cmake_args.append(f'-DMLIR_DIR={mlir_path}/lib/cmake/mlir')
             cmake_args.append(f'-DLLVM_DIR={mlir_path}/lib/cmake/llvm')
             print(f"Using MLIR from {mlir_path}")
         else:
-            print("MLIR not found, TableGen targets will be skipped")
+            print(f"WARNING: MLIR not found at {mlir_path}. TableGen targets may be skipped.")
         
         # Build configuration
         build_args = ['--config', 'Release']
@@ -101,18 +92,31 @@ class CMakeBuild(build_ext):
         # Create build directory
         if not os.path.exists(self.build_temp):
             os.makedirs(self.build_temp)
-        
+            
+        print(f"Configuring CMake in {self.build_temp}...")
         # Run CMake configure
         subprocess.check_call(
             ['cmake', ext.sourcedir] + cmake_args,
             cwd=self.build_temp
         )
         
-        # Run CMake build
+        print("Building extensions...")
+        # Run CMake build for extensions
         subprocess.check_call(
             ['cmake', '--build', '.'] + build_args,
             cwd=self.build_temp
         )
+        
+        # Build cute-opt tool as requested
+        print("Building cute-opt tool...")
+        try:
+            subprocess.check_call(
+                ['cmake', '--build', '.', '--target', 'cute-opt'] + build_args[1:],
+                cwd=self.build_temp
+            )
+            print("cute-opt built successfully.")
+        except subprocess.CalledProcessError:
+            print("Warning: Failed to build cute-opt. Continuing with python bindings.")
 
 # Read README for long description
 def read_readme():
@@ -120,13 +124,13 @@ def read_readme():
     if os.path.exists(readme_path):
         with open(readme_path, encoding='utf-8') as f:
             return f.read()
-    return "CuTe Runtime - Python bindings for CuTe MLIR compiler with AMD ROCm support"
+    return "RocDSL - MLIR Compiler Infrastructure for high performance rocm kernels"
 
 setup(
-    name='cute-runtime',
+    name='rocdsl',
     version='0.1.0',
-    author='CuTe IR Project',
-    description='Python runtime library for CuTe MLIR compiler (AMD ROCm/HIP)',
+    author='RocDSL Contributors',
+    description='Python bindings for RocDSL - ROCm Domain Specific Language for CuTe Layout Algebra',
     long_description=read_readme(),
     long_description_content_type='text/markdown',
     url='https://github.com/your-org/cute-ir-tablegen',
@@ -138,19 +142,13 @@ setup(
     cmdclass={'build_ext': CMakeBuild},
     
     python_requires='>=3.8',
-    install_requires=[
-        'numpy>=1.20.0',
-    ],
+    install_requires=load_requirements(),
     extras_require={
         'dev': [
             'pytest>=6.0',
             'pytest-cov',
             'black',
             'mypy',
-        ],
-        'docs': [
-            'sphinx>=4.0',
-            'sphinx-rtd-theme',
         ],
     },
     

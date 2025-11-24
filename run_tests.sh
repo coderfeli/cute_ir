@@ -12,7 +12,7 @@ echo ""
 # Test 1: crd2idx
 echo "✅ Test 1: crd2idx - Coordinate to Linear Index"
 echo "Expected: coord(2,3) with stride(1,16) → idx=50"
-$CUTE_OPT $PASS tests/test_crd2idx.mlir > /tmp/test_crd2idx.out 2>&1
+$CUTE_OPT $PASS tests/mlir/test_crd2idx.mlir > /tmp/test_crd2idx.out 2>&1
 if [ $? -eq 0 ]; then
     echo "   PASS: Lowered to arith operations"
     grep -q "arith.muli.*%c2.*%c1" /tmp/test_crd2idx.out && echo "   ✓ Found: 2*1"
@@ -26,7 +26,7 @@ echo ""
 # Test 2: size
 echo "✅ Test 2: size - Product of Shape Dimensions"
 echo "Expected: shape(8,16,32) → size=4096"
-$CUTE_OPT $PASS tests/test_size.mlir > /tmp/test_size.out 2>&1
+$CUTE_OPT $PASS tests/mlir/test_size.mlir > /tmp/test_size.out 2>&1
 if [ $? -eq 0 ]; then
     echo "   PASS: Lowered to multiplications"
     grep -q "arith.muli" /tmp/test_size.out && echo "   ✓ Found: multiplication chain"
@@ -38,7 +38,7 @@ echo ""
 # Test 3: rank
 echo "✅ Test 3: rank - Number of Dimensions"
 echo "Expected: shape<3> → rank=3"
-$CUTE_OPT $PASS tests/test_rank.mlir > /tmp/test_rank.out 2>&1
+$CUTE_OPT $PASS tests/mlir/test_rank.mlir > /tmp/test_rank.out 2>&1
 if [ $? -eq 0 ]; then
     echo "   PASS: Lowered to constant"
     grep -q "constant 3" /tmp/test_rank.out && echo "   ✓ Found: constant 3"
@@ -50,7 +50,7 @@ echo ""
 # Test 4: cosize
 echo "✅ Test 4: cosize - Codomain Size"
 echo "Expected: layout(shape(8,128), stride(1,16)) → cosize=2033"
-$CUTE_OPT $PASS tests/test_cosize.mlir > /tmp/test_cosize.out 2>&1
+$CUTE_OPT $PASS tests/mlir/test_cosize.mlir > /tmp/test_cosize.out 2>&1
 if [ $? -eq 0 ]; then
     echo "   PASS: Lowered to max computation"
     grep -q "arith.cmpi" /tmp/test_cosize.out && echo "   ✓ Found: comparison"
@@ -62,7 +62,7 @@ echo ""
 
 # Test 5: Comprehensive test
 echo "✅ Test 5: Comprehensive - All Operations Together"
-$CUTE_OPT $PASS tests/comprehensive_test.mlir > /tmp/test_comprehensive.out 2>&1
+$CUTE_OPT $PASS tests/mlir/comprehensive_test.mlir > /tmp/test_comprehensive.out 2>&1
 if [ $? -eq 0 ]; then
     echo "   PASS: All 5 functions lowered successfully"
     echo "   ✓ test_size"
@@ -99,7 +99,7 @@ echo "========================================"
 echo ""
 echo "✅ Test 6: composition - Layout Composition"
 echo "Expected: layoutA ∘ layoutB with stride multiplication"
-$CUTE_OPT tests/test_composition.mlir --cute-to-standard > /tmp/test_composition_lowered.mlir
+$CUTE_OPT tests/mlir/test_composition.mlir --cute-to-standard > /tmp/test_composition_lowered.mlir
 if grep -q "cute.composition" /tmp/test_composition_lowered.mlir; then
   echo "   ❌ FAIL: composition not lowered"
 else

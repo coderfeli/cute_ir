@@ -64,6 +64,10 @@ endif()
 
 add_subdirectory(lib)
 add_subdirectory(tools)
+if(BUILD_PYTHON_BINDINGS AND MLIR_FOUND)
+    add_subdirectory(python_bindings)
+endif()
+
 
 # Installation
 install(DIRECTORY include/cute

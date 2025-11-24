@@ -17,6 +17,7 @@ def test_cute_layout_hierarchy():
     
     ctx = Context()
     ctx.load_all_available_dialects()
+    ctx.allow_unregistered_dialects = True
     
     with ctx, Location.unknown(ctx):
         module = Module.create()
@@ -85,7 +86,7 @@ def test_cute_layout_hierarchy():
     opt = run_pipeline(module, p)
     print("✓ Canonicalize + CSE applied")
     
-    return module
+    # Module created successfully
 
 def main():
     print("\n" + "=" * 70)

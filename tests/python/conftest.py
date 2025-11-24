@@ -8,6 +8,9 @@ from mlir.ir import Context, Location, Module, InsertionPoint
 def ctx():
     """Provide a fresh MLIR context for each test."""
     with Context() as context:
+        # Allow unregistered dialects (for external dialects like cute)
+        context.allow_unregistered_dialects = True
+        
         # Load required dialects
         context.load_all_available_dialects()
         
@@ -28,6 +31,13 @@ def ctx():
 def module(ctx):
     """Provide module from context."""
     return ctx.module
+
+
+@pytest.fixture
+def insert_point(ctx):
+    """Provide insertion point for the module body."""
+    with InsertionPoint(ctx.module.body):
+        yield InsertionPoint.current
 
 
 def pytest_sessionfinish(session, exitstatus):
