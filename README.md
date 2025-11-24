@@ -23,7 +23,7 @@ A modern MLIR-based compiler infrastructure for CuTe (CUDA Template Library), pr
 # Inside Docker container
 cd cute_ir_tablegen
 mkdir -p build && cd build
-cmake .. -DMLIR_DIR=llvm-project/buildmlir/lib/cmake/mlir
+cmake .. -DMLIR_DIR=/mnt/raid0/felix/llvm-project/buildmlir/lib/cmake/mlir
 make -j8
 ```
 
@@ -39,7 +39,7 @@ make -j8
 # Test layout operations
 ./build/tools/cute-opt/cute-opt tests/test_layout.mlir
 
-# Run transformation pass (partial lowering)
+# Run transformation pass
 ./build/tools/cute-opt/cute-opt tests/test_pass.mlir --cute-to-standard
 ```
 
@@ -49,8 +49,10 @@ make -j8
 
 ```mlir
 module {
-  func.func @test_types() -> !cute.layout<2> {
-    %layout = "test.dummy"() : () -> !cute.layout<2>
+  func.func @test_types(%i1: !cute.int, %i2: !cute.int) -> !cute.layout<2> {
+    %shape = cute.make_shape %i1, %i2 : (!cute.int, !cute.int) -> !cute.shape<2>
+    %stride = cute.make_stride %i1, %i2 : (!cute.int, !cute.int) -> !cute.stride<2>
+    %layout = cute.make_layout %shape, %stride : (!cute.shape<2>, !cute.stride<2>) -> !cute.layout<2>
     return %layout : !cute.layout<2>
   }
   
@@ -92,9 +94,9 @@ module {
 ```
 cute_ir_tablegen/
 ├── include/cute/          # Dialect definitions (TableGen)
+│   ├── CuteDialect.h      # Dialect and type declarations (5 types)
 │   ├── CuteDialect.td     # Dialect definition with custom type parsing
-│   ├── CuteOps.td         # 6 operations: make_shape, make_stride, make_layout, make_coord, size, crd2idx
-│   ├── CuteTypes.h        # Manual type declarations (5 types)
+│   ├── CuteOps.td         # 6 operations with modern MLIR API
 │   ├── CutePasses.td      # Pass definitions
 │   └── CutePasses.h       # Pass interface
 ├── lib/
@@ -148,7 +150,7 @@ cute_ir_tablegen/
 - ✅ **Type parsing**: All 5 types parse and print correctly
 - ✅ **Operations**: All 6 operations parse successfully
 - ✅ **Pass registration**: `--cute-to-standard` registered in cute-opt
-- ⚠️ **Pass execution**: Only `crd2idx` lowering implemented (other ops need patterns)
+- ⚠️ **Pass execution**: Only `crd2idx` lowering implemented (type conversion warnings are expected)
 
 ## 🛠️ Prerequisites
 
@@ -160,12 +162,18 @@ cute_ir_tablegen/
 
 ## 🏗️ Build Details
 
-The build system uses TableGen to generate operation definitions and automatically fixes modern MLIR API incompatibilities:
+The build system uses TableGen to generate operation definitions. The TableGen definitions use modern MLIR API directly:
 
-```bash
-# After TableGen runs, fix type.isa<>() calls in generated code
-# This is handled automatically by the build system
+```tablegen
+// Type constraints use modern llvm::isa<> API
+def Cute_IntType : Type<CPred<"llvm::isa<::mlir::cute::IntType>($_self)">, "cute.int">;
 ```
+
+**Key differences from legacy MLIR**:
+- ✅ Modern: `llvm::isa<Type>(value)` - global function
+- ❌ Legacy: `value.isa<Type>()` - member function (removed in modern MLIR)
+
+The TableGen definitions in `CuteOps.td` use the modern API, so generated code compiles without post-processing.
 
 ## 🔍 Implementation Notes
 
@@ -173,6 +181,7 @@ The build system uses TableGen to generate operation definitions and automatical
 - **Type Parsing**: Custom `parseType()` and `printType()` in `CuteDialect.cpp`
 - **Pass System**: Modern MLIR using `GEN_PASS_DEF` macros and `impl::PassBase` inheritance
 - **Dependencies**: Requires `MLIRSCFDialect` for pass infrastructure
+- **API Compatibility**: Uses modern `llvm::isa<>()` instead of legacy `.isa<>()`
 
 ## 📄 License
 
