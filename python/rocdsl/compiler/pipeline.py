@@ -3489,6 +3489,69 @@ class Pipeline:
         self.add_pass("resolve-shaped-type-result-dims")
         return self
 
+    def rocir_coord_lowering(self):
+        """Lower Rocir coordinate operations to arithmetic (via external rocir-opt)
+        
+        This pass converts high-level coordinate operations (rocir.crd2idx, 
+        rocir.idx2crd, rocir.rank) into arithmetic operations using rocir-opt
+        as an external subprocess. This bypasses Python binding issues.
+        
+        Example transformation:
+        ```mlir
+        // Before:
+        %idx = rocir.crd2idx %coord, %layout
+        
+        // After (for 2D row-major layout with stride=(64,1)):
+        %mul0 = arith.muli %coord_0, %c64
+        %mul1 = arith.muli %coord_1, %c1
+        %idx = arith.addi %mul0, %mul1
+        ```
+        
+        NOTE: Uses subprocess to invoke rocir-opt binary.
+        """
+        import subprocess
+        import tempfile
+        import os
+        from mlir import ir
+        
+        # Convert current module to MLIR text
+        module_str = str(self.module)
+        
+        # Write to temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.mlir', delete=False) as f:
+            f.write(module_str)
+            temp_input = f.name
+        
+        try:
+            # Find rocir-opt binary
+            rocir_opt = '/mnt/raid0/felix/rocDSL/build/bin/rocir-opt'
+            if not os.path.exists(rocir_opt):
+                # Fallback: try to find in PATH
+                import shutil
+                rocir_opt = shutil.which('rocir-opt')
+                if not rocir_opt:
+                    raise FileNotFoundError("rocir-opt binary not found")
+            
+            # Run rocir-opt with the lowering pass
+            result = subprocess.run(
+                [rocir_opt, temp_input, '--rocir-coord-lowering'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            # Parse the result back into MLIR
+            with ir.Context() as ctx:
+                ctx.allow_unregistered_dialects = True
+                self.module = ir.Module.parse(result.stdout, ctx)
+            
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_input):
+                os.unlink(temp_input)
+        
+        return self
+
     def rocdl_attach_target(
         self,
         module: str = None,

@@ -50,6 +50,37 @@ def RocirToStandardPass : Pass<"rocir-to-standard", "::mlir::ModuleOp"> {
   ];
 }
 
+
+def RocirCoordLoweringPass : Pass<"rocir-coord-lowering", "::mlir::ModuleOp"> {
+  let summary = "Lower Rocir coordinate operations to arithmetic";
+  let description = [{
+    Converts coordinate operations to arithmetic operations:
+    
+    - rocir.crd2idx → arith.muli + arith.addi chain
+    - rocir.idx2crd → arith.divui + arith.remui
+    - rocir.get → Direct value forwarding
+    - rocir.rank → Constant folding
+    
+    Example:
+    ```mlir
+    // Before:
+    %coord = rocir.make_coord %i, %j
+    %idx = rocir.crd2idx %coord, %layout
+    
+    // After:
+    %t0 = arith.muli %i, %stride_0
+    %t1 = arith.muli %j, %stride_1
+    %idx = arith.addi %t0, %t1
+    ```
+  }];
+  
+  let constructor = "mlir::rocir::createRocirCoordLoweringPass()";
+  let dependentDialects = [
+    "::mlir::arith::ArithDialect",
+    "::mlir::func::FuncDialect"
+  ];
+}
+
 def CuteLayoutCanonicalizePass : Pass<"cute-layout-canonicalize", "::mlir::func::FuncOp"> {
   let summary = "Canonicalize and simplify Layout operations";
   let description = [{

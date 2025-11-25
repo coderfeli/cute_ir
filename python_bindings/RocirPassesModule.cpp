@@ -1,34 +1,39 @@
-//===- RocirPassesModule.cpp - CuTe Passes Python Module ------------------===//
+//===- RocirPassesModule.cpp - Rocir Passes Python Module -----------------===//
 
+#include "mlir/Bindings/Python/PybindAdaptors.h"
+#include "mlir/CAPI/Pass.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "rocir/RocirPasses.h"
 
 #include <pybind11/pybind11.h>
-#include <iostream>
 
 namespace py = pybind11;
 
-// Manual registration of implemented passes
-inline void registerRocirToStandardPassManual() {
-  std::cerr << "[RocirPassesExt] Registering rocir-to-standard pass..." << std::endl;
-  ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
-    return ::mlir::rocir::createRocirToStandardPass();
-  });
-  std::cerr << "[RocirPassesExt] Pass registered!" << std::endl;
+namespace {
+// Wrapper to convert std::unique_ptr<Pass> to MlirPass for Python
+MlirPass createRocirCoordLoweringPassWrapper() {
+  return wrap(mlir::rocir::createRocirCoordLoweringPass().release());
 }
 
-PYBIND11_MODULE(_rocirPassesExt, m) {
-  std::cerr << "[RocirPassesExt] Module initialization started" << std::endl;
-  
-  m.doc() = "CuTe transformation passes extension module";
+MlirPass createRocirToStandardPassWrapper() {
+  return wrap(mlir::rocir::createRocirToStandardPass().release());
+}
+} // namespace
 
-  m.def("register_passes", []() {
-    registerRocirToStandardPassManual();
-  }, "Register all implemented CuTe transformation passes with MLIR");
+PYBIND11_MODULE(_rocirPassesExt, m) {
+  m.doc() = "Rocir transformation passes extension module";
+
+  // Expose pass creation functions directly to Python
+  m.def("create_rocir_coord_lowering_pass", 
+        &createRocirCoordLoweringPassWrapper,
+        "Create an instance of the Rocir coordinate lowering pass");
   
-  // Auto-register on module import
-  registerRocirToStandardPassManual();
+  m.def("create_rocir_to_standard_pass",
+        &createRocirToStandardPassWrapper,
+        "Create an instance of the Rocir to standard lowering pass");
   
-  std::cerr << "[RocirPassesExt] Module initialization completed" << std::endl;
+  // Also register for text-based pipeline parsing (fallback)
+  ::mlir::rocir::registerRocirToStandardPassManual();
+  ::mlir::rocir::registerRocirCoordLoweringPassManual();
 }

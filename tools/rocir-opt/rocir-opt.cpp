@@ -9,6 +9,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
@@ -20,9 +23,13 @@
 int main(int argc, char **argv) {
   mlir::registerAllPasses();
   
-  // Register implemented cute passes
+  // Register implemented rocir passes
   ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
     return mlir::rocir::createRocirToStandardPass();
+  });
+  
+  ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
+    return mlir::rocir::createRocirCoordLoweringPass();
   });
   
   mlir::DialectRegistry registry;
@@ -30,7 +37,10 @@ int main(int argc, char **argv) {
   registry.insert<mlir::func::FuncDialect>();
   registry.insert<mlir::arith::ArithDialect>();
   registry.insert<mlir::memref::MemRefDialect>();
+  registry.insert<mlir::gpu::GPUDialect>();
+  registry.insert<mlir::scf::SCFDialect>();
+  registry.insert<mlir::ROCDL::ROCDLDialect>();
   
   return mlir::asMainReturnCode(
-      mlir::MlirOptMain(argc, argv, "CuTe Optimizer Driver", registry));
+      mlir::MlirOptMain(argc, argv, "Rocir Optimizer Driver", registry));
 }
