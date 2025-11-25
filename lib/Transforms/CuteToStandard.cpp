@@ -294,7 +294,7 @@ struct Idx2CrdOpLowering : public RewritePattern {
     
     // For each dimension from last to first
     for (int i = shapes.size() - 1; i >= 0; --i) {
-      if (i == shapes.size() - 1) {
+      if (i == static_cast<int>(shapes.size()) - 1) {
         // Last dimension: coord = idx % shape
         auto coord = rewriter.create<arith::RemSIOp>(loc, remaining, shapes[i]);
         coords.insert(coords.begin(), coord.getResult());
@@ -397,7 +397,7 @@ struct CompositionOpLowering : public OpRewritePattern<CompositionOp> {
     if (!shapeAOp || !strideAOp || !shapeBOp || !strideBOp)
       return failure();
     
-    auto shapeAVals = shapeAOp->getOperands();
+    // auto shapeAVals = shapeAOp->getOperands();
     auto strideAVals = strideAOp->getOperands();
     auto shapeBVals = shapeBOp->getOperands();
     auto strideBVals = strideBOp->getOperands();
@@ -636,7 +636,7 @@ struct LocalTileOpLowering : public OpRewritePattern<LocalTileOp> {
     // Create a layout from the tiler shape (with default strides)
     auto tilerRank = llvm::cast<ShapeType>(tilerShape.getType()).getRank();
     SmallVector<Value> ones;
-    for (unsigned i = 0; i < tilerRank; ++i) {
+    for (int i = 0; i < tilerRank; ++i) {
       ones.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 1));
     }
     
@@ -739,7 +739,7 @@ struct CuteToStandardPass
     patterns.add<TiledDivideOpLowering>(&getContext());
     
 
-    if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns)))) {
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }
   }
