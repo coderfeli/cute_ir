@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GPU kernel tests using rocdsl Python API with REAL GPU EXECUTION"""
+"""GPU kernel tests demonstrating integration with Rocir Layout concepts"""
 
 import sys
 sys.path.insert(0, '/mnt/raid0/felix/llvm-project/buildmlir/tools/mlir/python_packages/mlir_core')
@@ -8,7 +8,7 @@ sys.path.insert(0, '/mnt/raid0/felix/rocDSL/python')
 
 from rocdsl.compiler.context import RAIIMLIRContextModule
 from rocdsl.compiler.pipeline import Pipeline, run_pipeline
-from rocdsl.dialects.ext import gpu
+from rocdsl.dialects.ext import gpu, rocir
 from rocdsl.runtime.hip_util import hip_check, get_hip_arch
 from mlir import ir
 from mlir.dialects import arith, memref, scf
@@ -34,10 +34,78 @@ def compile_to_hsaco(mlir_module):
     return get_compile_object_bytes(lowered)
 
 
-def test_vector_add():
-    """Vector addition with GPU execution and validation"""
+def demonstrate_rocir_layouts():
+    """
+    Demonstrate Rocir layout algebra concepts at host level.
+    Layouts describe how multi-dimensional tensors map to linear memory.
+    """
     print("\n" + "="*80)
-    print("Test 1: Vector Addition (C = A + B) on GPU")
+    print("Rocir Layout Algebra Demo (Host-Side)")
+    print("="*80)
+    
+    ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    with ctx.context:
+        # Example 1: 1D contiguous vector layout
+        size_1d = arith.constant(T.index(), 1024)
+        stride_1d = arith.constant(T.index(), 1)
+        
+        shape_1d = rocir.make_shape(size_1d)
+        stride_vec = rocir.make_stride(stride_1d)
+        layout_1d = rocir.make_layout(shape_1d, stride_vec)
+        
+        print("✓ 1D Vector Layout:")
+        print("  - Shape: (1024,)")
+        print("  - Stride: (1,) [contiguous]")
+        print("  - Usage: Maps vector index i to memory offset i*1")
+        
+        # Example 2: 2D row-major matrix layout
+        m = arith.constant(T.index(), 32)
+        n = arith.constant(T.index(), 64)
+        one = arith.constant(T.index(), 1)
+        
+        shape_2d = rocir.make_shape(m, n)
+        stride_row_major = rocir.make_stride(n, one)  # (64, 1)
+        layout_row_major = rocir.make_layout(shape_2d, stride_row_major)
+        
+        print("\n✓ 2D Row-Major Matrix Layout (32×64):")
+        print("  - Shape: (32, 64)")
+        print("  - Stride: (64, 1)")
+        print("  - Usage: A[i,j] maps to offset i*64 + j*1")
+        
+        # Example 3: 2D column-major matrix layout
+        stride_col_major = rocir.make_stride(one, m)  # (1, 32)
+        layout_col_major = rocir.make_layout(shape_2d, stride_col_major)
+        
+        print("\n✓ 2D Column-Major Matrix Layout (32×64):")
+        print("  - Shape: (32, 64)")
+        print("  - Stride: (1, 32)")
+        print("  - Usage: A[i,j] maps to offset i*1 + j*32")
+        
+        # Layout composition: Tiling
+        tile_m = arith.constant(T.index(), 16)
+        tile_n = arith.constant(T.index(), 16)
+        tile_shape = rocir.make_shape(tile_m, tile_n)
+        
+        print("\n✓ Layout Composition (Tiling):")
+        print("  - Original: (32, 64) with stride (64, 1)")
+        print("  - Tile: (16, 16)")
+        print("  - Composition creates hierarchical layout for blocked access")
+        print("  - Available: logical_product, tiled_product, blocked_product")
+        
+        print("\n✓ Available Rocir Layout Operations:")
+        print("  - Construction: make_shape, make_stride, make_layout")
+        print("  - Query: size, cosize, rank, get_shape, get_stride")
+        print("  - Composition: composition, logical_product, zipped_product,")
+        print("                 tiled_product, flat_product, raked_product, blocked_product")
+        print("  - Partitioning: logical_divide, zipped_divide, tiled_divide, flat_divide,")
+        print("                  local_partition, local_tile")
+
+
+def test_vector_add():
+    """Vector addition with layout annotations"""
+    print("\n" + "="*80)
+    print("Test 1: Vector Addition (C = A + B)")
+    print("Layout: 1D contiguous, shape=(2048,), stride=(1,)")
     print("="*80)
     
     SIZE = 2048
@@ -65,7 +133,6 @@ def test_vector_add():
             scf.yield_([])
     
     ip.__exit__(None, None, None)
-    print("✓ MLIR module created")
     
     hsaco = compile_to_hsaco(ctx.module)
     print(f"✓ Compiled to HSACO: {len(hsaco)} bytes")
@@ -92,34 +159,28 @@ def test_vector_add():
     arg_ptrs = [ctypes.c_void_p(int(d_a)), ctypes.c_void_p(int(d_b)), ctypes.c_void_p(int(d_c))]
     args = (ctypes.c_void_p * len(arg_ptrs))(*[ctypes.addressof(p) for p in arg_ptrs])
     
-    print(f"✓ Launching: {num_blocks} blocks × {threads_per_block} threads")
     hip_check(hip.hipModuleLaunchKernel(kernel_func, num_blocks, 1, 1, threads_per_block, 1, 1, 0, 0, args, None))
     hip_check(hip.hipDeviceSynchronize())
     
     hip_check(hip.hipMemcpy(c_host.ctypes.data, d_c, SIZE * 4, hip.hipMemcpyKind.hipMemcpyDeviceToHost))
     
     error = np.max(np.abs(c_host - expected))
-    
     print(f"✓ Max error: {error:.2e}")
-    print(f"  Results[:5]: {c_host[:5]}")
     
     hip_check(hip.hipFree(d_a))
     hip_check(hip.hipFree(d_b))
     hip_check(hip.hipFree(d_c))
     hip_check(hip.hipModuleUnload(hip_module))
     
-    if error < 1e-5:
-        print("✅ TEST PASSED!")
-        return True
-    else:
-        print(f"❌ TEST FAILED: error = {error}")
-        return False
+    return error < 1e-5
 
 
 def test_matrix_transpose():
-    """Matrix transpose with GPU execution and validation"""
+    """Matrix transpose demonstrating layout transformations"""
     print("\n" + "="*80)
-    print("Test 2: Matrix Transpose (B = A^T) on GPU")
+    print("Test 2: Matrix Transpose (B = A^T)")
+    print("Layout A: shape=(32,64), stride=(64,1) [row-major]")
+    print("Layout B: shape=(64,32), stride=(32,1) [row-major, transposed]")
     print("="*80)
     
     M, N = 32, 64
@@ -157,7 +218,6 @@ def test_matrix_transpose():
             scf.yield_([])
     
     ip.__exit__(None, None, None)
-    print("✓ MLIR module created")
     
     hsaco = compile_to_hsaco(ctx.module)
     print(f"✓ Compiled to HSACO: {len(hsaco)} bytes")
@@ -182,33 +242,28 @@ def test_matrix_transpose():
     arg_ptrs = [ctypes.c_void_p(int(d_a)), ctypes.c_void_p(int(d_b))]
     args = (ctypes.c_void_p * len(arg_ptrs))(*[ctypes.addressof(p) for p in arg_ptrs])
     
-    print(f"✓ Launching: ({grid_x}, {grid_y}) blocks × ({block_size}, {block_size}) threads")
     hip_check(hip.hipModuleLaunchKernel(kernel_func, grid_x, grid_y, 1, block_size, block_size, 1, 0, 0, args, None))
     hip_check(hip.hipDeviceSynchronize())
     
     hip_check(hip.hipMemcpy(b_host.ctypes.data, d_b, M * N * 4, hip.hipMemcpyKind.hipMemcpyDeviceToHost))
     
     error = np.max(np.abs(b_host - expected))
-    
     print(f"✓ Max error: {error:.2e}")
-    print(f"  B[0,:5]: {b_host[0,:5]}")
     
     hip_check(hip.hipFree(d_a))
     hip_check(hip.hipFree(d_b))
     hip_check(hip.hipModuleUnload(hip_module))
     
-    if error < 1e-5:
-        print("✅ TEST PASSED!")
-        return True
-    else:
-        print(f"❌ TEST FAILED: error = {error}")
-        return False
+    return error < 1e-5
 
 
-def test_matrix_multiply_with_layout():
-    """Matrix multiply using layout-based indexing on GPU"""
+def test_matmul():
+    """Matrix multiply"""
     print("\n" + "="*80)
-    print("Test 3: Matrix Multiply (C = A * B) with Layout on GPU")
+    print("Test 3: Matrix Multiply (C = A * B)")
+    print("Layout A (32×64): shape=(32,64), stride=(64,1) [row-major]")
+    print("Layout B (64×32): shape=(64,32), stride=(32,1) [row-major]")
+    print("Layout C (32×32): shape=(32,32), stride=(32,1) [row-major]")
     print("="*80)
     
     M, N, K = 32, 32, 64
@@ -230,27 +285,22 @@ def test_matrix_multiply_with_layout():
         tx = gpu.thread_id("x")
         ty = gpu.thread_id("y")
         
-        # Compute global row and column
         row = arith.addi(arith.muli(by, arith.constant(T.index(), 16)), ty)
         col = arith.addi(arith.muli(bx, arith.constant(T.index(), 16)), tx)
         
         m_c = arith.constant(T.index(), M)
         n_c = arith.constant(T.index(), N)
         k_c = arith.constant(T.index(), K)
+        one = arith.constant(T.index(), 1)
         
         row_valid = arith.cmpi(arith.CmpIPredicate.slt, row, m_c)
         col_valid = arith.cmpi(arith.CmpIPredicate.slt, col, n_c)
         valid = arith.andi(row_valid, col_valid)
         
         with ir.InsertionPoint(scf.IfOp(valid).then_block):
-            # Initialize accumulator
             sum_val = arith.constant(T.f32(), 0.0)
-            
-            # Loop over K dimension
             k_idx = arith.constant(T.index(), 0)
-            one = arith.constant(T.index(), 1)
             
-            # Simple dot product loop
             for_op = scf.ForOp(k_idx, k_c, one, [sum_val])
             with ir.InsertionPoint(for_op.body):
                 k = for_op.induction_variable
@@ -268,32 +318,26 @@ def test_matrix_multiply_with_layout():
             scf.yield_([])
     
     ip.__exit__(None, None, None)
-    print("✓ MLIR module created")
     
     hsaco = compile_to_hsaco(ctx.module)
     print(f"✓ Compiled to HSACO: {len(hsaco)} bytes")
     
-    # Prepare test data
     np.random.seed(456)
     a_host = np.random.randn(M, K).astype(np.float32)
     b_host = np.random.randn(K, N).astype(np.float32)
     c_host = np.zeros((M, N), dtype=np.float32)
     expected = a_host @ b_host
     
-    # GPU memory allocation
     d_a = hip_check(hip.hipMalloc(M * K * 4))
     d_b = hip_check(hip.hipMalloc(K * N * 4))
     d_c = hip_check(hip.hipMalloc(M * N * 4))
     
-    # Copy to device
     hip_check(hip.hipMemcpy(d_a, a_host.ctypes.data, M * K * 4, hip.hipMemcpyKind.hipMemcpyHostToDevice))
     hip_check(hip.hipMemcpy(d_b, b_host.ctypes.data, K * N * 4, hip.hipMemcpyKind.hipMemcpyHostToDevice))
     
-    # Load module and kernel
     hip_module = hip_check(hip.hipModuleLoadData(hsaco))
     kernel_func = hip_check(hip.hipModuleGetFunction(hip_module, b"matmul"))
     
-    # Launch configuration
     block_size = 16
     grid_x = (N + block_size - 1) // block_size
     grid_y = (M + block_size - 1) // block_size
@@ -301,50 +345,45 @@ def test_matrix_multiply_with_layout():
     arg_ptrs = [ctypes.c_void_p(int(d_a)), ctypes.c_void_p(int(d_b)), ctypes.c_void_p(int(d_c))]
     args = (ctypes.c_void_p * len(arg_ptrs))(*[ctypes.addressof(p) for p in arg_ptrs])
     
-    print(f"✓ Launching: ({grid_x}, {grid_y}) blocks × ({block_size}, {block_size}) threads")
     hip_check(hip.hipModuleLaunchKernel(kernel_func, grid_x, grid_y, 1, block_size, block_size, 1, 0, 0, args, None))
     hip_check(hip.hipDeviceSynchronize())
     
-    # Copy result back
     hip_check(hip.hipMemcpy(c_host.ctypes.data, d_c, M * N * 4, hip.hipMemcpyKind.hipMemcpyDeviceToHost))
     
-    # Verify
     error = np.max(np.abs(c_host - expected))
     rel_error = error / (np.max(np.abs(expected)) + 1e-8)
     
     print(f"✓ Max absolute error: {error:.2e}")
     print(f"✓ Max relative error: {rel_error:.2e}")
-    print(f"  C[0,:5]: {c_host[0,:5]}")
-    print(f"  Expected[0,:5]: {expected[0,:5]}")
     
-    # Cleanup
     hip_check(hip.hipFree(d_a))
     hip_check(hip.hipFree(d_b))
     hip_check(hip.hipFree(d_c))
     hip_check(hip.hipModuleUnload(hip_module))
     
-    if rel_error < 1e-3:  # More lenient for accumulation
-        print("✅ TEST PASSED!")
-        return True
-    else:
-        print(f"❌ TEST FAILED: relative error = {rel_error}")
-        return False
+    return rel_error < 1e-3
+
+
 if __name__ == "__main__":
     print("\n" + "="*80)
-    print("ROCm GPU Execution Tests with rocdsl Python API")
+    print("ROCm GPU Tests - Integration with Rocir Layout Algebra")
     print(f"GPU: {get_hip_arch()}")
     print("="*80)
     
+    # Demonstrate Rocir layout concepts
+    demonstrate_rocir_layouts()
+    
+    # Run GPU tests
     result1 = test_vector_add()
     result2 = test_matrix_transpose()
-    result3 = test_matrix_multiply_with_layout()
+    result3 = test_matmul()
     
     print("\n" + "="*80)
     if result1 and result2 and result3:
         print("🎉 ALL GPU TESTS PASSED!")
+        print("\nNote: Rocir layout algebra demonstrated at host level.")
+        print("Future work: Add lowering passes to use layouts in GPU kernels.")
         sys.exit(0)
     else:
         print("⚠️ SOME TESTS FAILED")
         sys.exit(1)
-
-

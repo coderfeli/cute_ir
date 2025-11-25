@@ -92,6 +92,18 @@ class LayoutType(Type):
         return Type.parse(f"!rocir.layout<{rank}>", context=context)
 
 
+class CoordType(Type):
+    """Rocir coordinate type."""
+    
+    @staticmethod
+    def get(rank: int, context=None):
+        """Create a coordinate type with given rank."""
+        from mlir.ir import Context
+        if context is None:
+            context = Context.current
+        return Type.parse(f"!rocir.coord<{rank}>", context=context)
+
+
 
 def make_shape(*dims: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
     """Create a shape from dimension values.
@@ -169,6 +181,89 @@ def make_layout(shape: Value, stride: Value, loc: Optional[Location] = None, ip:
     
     with ip or InsertionPoint.current:
         return rocir_ops.MakeLayoutOp(result_type, _unwrap_value(shape), stride, loc=loc).result
+
+
+def make_coord(*coords: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Create a coordinate from index values.
+    
+    Args:
+        *coords: Index values representing each coordinate dimension
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        A Rocir coordinate value
+        
+    Example:
+        >>> i = arith.constant(4, index=True)
+        >>> j = arith.constant(7, index=True)
+        >>> coord = rocir.make_coord(i, j)  # Creates coord<2>
+    """
+    
+    loc = _get_location(loc)
+    rank = len(coords)
+    result_type = CoordType.get(rank)
+    
+    with ip or InsertionPoint.current:
+        return rocir_ops.MakeCoordOp(result_type, [_unwrap_value(c) for c in coords], loc=loc).result
+
+
+def crd2idx(coord: Value, layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Convert a coordinate to a linear index using a layout.
+    
+    Computes: sum(coord[i] * stride[i]) for all dimensions i.
+    
+    Args:
+        coord: A Rocir coordinate value
+        layout: A Rocir layout value
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        An index value representing the linear offset
+        
+    Example:
+        >>> coord = rocir.make_coord(i, j)
+        >>> layout = rocir.make_layout(shape, stride)
+        >>> idx = rocir.crd2idx(coord, layout)  # Returns i*stride[0] + j*stride[1]
+    """
+    
+    loc = _get_location(loc)
+    result_type = IndexType.get()
+    
+    with ip or InsertionPoint.current:
+        return rocir_ops.Crd2IdxOp(result_type, _unwrap_value(coord), _unwrap_value(layout), loc=loc).result
+
+
+def idx2crd(idx: Value, layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Convert a linear index to a coordinate using a layout.
+    
+    This is the inverse operation of crd2idx.
+    
+    Args:
+        idx: An index value representing the linear offset
+        layout: A Rocir layout value
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        A Rocir coordinate value
+        
+    Example:
+        >>> idx = arith.constant(42, index=True)
+        >>> layout = rocir.make_layout(shape, stride)
+        >>> coord = rocir.idx2crd(idx, layout)  # Inverse of crd2idx
+    """
+    
+    loc = _get_location(loc)
+    # Extract rank from layout type
+    layout_type_str = str(layout.type)
+    rank = int(layout_type_str.split("<")[1].split(">")[0])
+    result_type = CoordType.get(rank)
+    
+    with ip or InsertionPoint.current:
+        return rocir_ops.Idx2CrdOp(result_type, _unwrap_value(idx), _unwrap_value(layout), loc=loc).result
+
 
 
 def size(shape_or_layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -481,10 +576,14 @@ __all__ = [
     "ShapeType",
     "StrideType",
     "LayoutType",
+    "CoordType",
     # Basic operations
     "make_shape",
     "make_stride",
     "make_layout",
+    "make_coord",
+    "crd2idx",
+    "idx2crd",
     "size",
     "cosize",
     "rank",
