@@ -3,5 +3,8 @@
 from . import arith
 from . import scf
 from . import rocir
+from . import gpu
+from . import func
+from mlir.dialects import memref
 
-__all__ = ["arith", "scf", "rocir"]
+__all__ = ["arith", "scf", "rocir", "gpu", "func", "memref"]

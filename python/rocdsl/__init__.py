@@ -32,7 +32,7 @@ def _register_cute_passes():
         warnings.warn(f"Failed to register Rocir passes: {e}")
 
 # Register passes before importing other modules
-_register_cute_passes()
+# _register_cute_passes()  # DISABLED: breaks MLIR context
 
 # Lazy import dialects and passes to avoid requiring MLIR when only using runtime
 def __getattr__(name):
@@ -60,3 +60,9 @@ __all__ = [
     "lower_cute_to_nvgpu",
     "optimize_layouts",
 ]
+
+# Export compiler modules
+from .compiler import Pipeline, run_pipeline
+from .compiler.context import RAIIMLIRContextModule
+
+__all__.extend(["Pipeline", "run_pipeline", "RAIIMLIRContextModule"])
