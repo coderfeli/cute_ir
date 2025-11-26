@@ -56,12 +56,12 @@ def test_vector_add():
     ip.__exit__(None, None, None)
     assert gpu_module.operation.verify()
     
-    print("✓ GPU module created successfully!")
+    print(" GPU module created successfully!")
     print(ctx.module)
     
     print("\nCompiling...")
     compiled = run_pipeline(ctx.module, Pipeline().canonicalize().cse())
-    print("✓ Compilation successful!")
+    print(" Compilation successful!")
     
     print("\n" + "="*80)
     print("PASSED: Vector Addition Test")

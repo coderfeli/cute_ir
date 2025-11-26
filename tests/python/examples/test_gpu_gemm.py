@@ -21,12 +21,12 @@ with ctx, Location.unknown(ctx):
             c2048 = arith.index(2048)
             c128 = arith.index(128)
             
-            # 使用 // 运算符计算 tile 数量
+            # Calculate number of tiles using // operator
             num_tiles = c2048 // c128
             
-            print("✓ 使用 operator // 计算: 2048 // 128")
+            print("Using operator // computes: 2048 // 128")
             return num_tiles._value
 
 print("\n生成的 MLIR IR:")
 print(module)
-print("\n✅ 测试通过！operator overloading 工作正常")
+print("\n Test passed!operator overloading works correctly")

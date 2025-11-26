@@ -89,12 +89,12 @@ def test_layout_based_transpose():
     ip.__exit__(None, None, None)
     assert gpu_module.operation.verify()
     
-    print("✓ Layout-based transpose GPU module created!")
+    print(" Layout-based transpose GPU module created!")
     print(ctx.module)
     
     print("\nCompiling...")
     compiled = run_pipeline(ctx.module, Pipeline().canonicalize().cse())
-    print("✓ Compilation successful!")
+    print(" Compilation successful!")
     
     print("\n" + "="*80)
     print("PASSED: Layout-based Transpose Test")
@@ -167,12 +167,12 @@ def test_strided_layout_access():
     ip.__exit__(None, None, None)
     assert gpu_module.operation.verify()
     
-    print("✓ Strided layout GPU module created!")
+    print(" Strided layout GPU module created!")
     print(ctx.module)
     
     print("\nCompiling...")
     compiled = run_pipeline(ctx.module, Pipeline().canonicalize().cse())
-    print("✓ Compilation successful!")
+    print(" Compilation successful!")
     
     print("\n" + "="*80)
     print("PASSED: Strided Layout Test")
@@ -242,12 +242,12 @@ def test_tiled_layout():
     ip.__exit__(None, None, None)
     assert gpu_module.operation.verify()
     
-    print("✓ Tiled layout GPU module created!")
+    print(" Tiled layout GPU module created!")
     print(ctx.module)
     
     print("\nCompiling...")
     compiled = run_pipeline(ctx.module, Pipeline().canonicalize().cse())
-    print("✓ Compilation successful!")
+    print(" Compilation successful!")
     
     print("\n" + "="*80)
     print("PASSED: Tiled Layout Test")

@@ -57,10 +57,10 @@ def demonstrate_rocir_layouts():
         stride_vec = rocir.make_stride(stride_1d)
         layout_1d = rocir.make_layout(shape_1d, stride_vec)
         
-        print("✓ 1D Vector Layout:")
-        print("  - Shape: (1024,)")
-        print("  - Stride: (1,) [contiguous]")
-        print("  - Usage: Maps vector index i to memory offset i*1")
+        print(" 1D Vector Layout:")
+        print("- Shape: (1024,)")
+        print("- Stride: (1,) [contiguous]")
+        print("- Usage: Maps vector index i to memory offset i*1")
         
         # Example 2: 2D row-major matrix layout
         m = arith.index(32)._value
@@ -71,38 +71,38 @@ def demonstrate_rocir_layouts():
         stride_row_major = rocir.make_stride(n, one)  # (64, 1)
         layout_row_major = rocir.make_layout(shape_2d, stride_row_major)
         
-        print("\n✓ 2D Row-Major Matrix Layout (32×64):")
-        print("  - Shape: (32, 64)")
-        print("  - Stride: (64, 1)")
-        print("  - Usage: A[i,j] maps to offset i*64 + j*1")
+        print("\n 2D Row-Major Matrix Layout (32×64):")
+        print("- Shape: (32, 64)")
+        print("- Stride: (64, 1)")
+        print("- Usage: A[i,j] maps to offset i*64 + j*1")
         
         # Example 3: 2D column-major matrix layout
         stride_col_major = rocir.make_stride(one, m)  # (1, 32)
         layout_col_major = rocir.make_layout(shape_2d, stride_col_major)
         
-        print("\n✓ 2D Column-Major Matrix Layout (32×64):")
-        print("  - Shape: (32, 64)")
-        print("  - Stride: (1, 32)")
-        print("  - Usage: A[i,j] maps to offset i*1 + j*32")
+        print("\n 2D Column-Major Matrix Layout (32×64):")
+        print("- Shape: (32, 64)")
+        print("- Stride: (1, 32)")
+        print("- Usage: A[i,j] maps to offset i*1 + j*32")
         
         # Layout composition: Tiling
         tile_m = arith.index(16)._value
         tile_n = arith.index(16)._value
         tile_shape = rocir.make_shape(tile_m, tile_n)
         
-        print("\n✓ Layout Composition (Tiling):")
-        print("  - Original: (32, 64) with stride (64, 1)")
-        print("  - Tile: (16, 16)")
-        print("  - Composition creates hierarchical layout for blocked access")
-        print("  - Available: logical_product, tiled_product, blocked_product")
+        print("\n Layout Composition (Tiling):")
+        print("- Original: (32, 64) with stride (64, 1)")
+        print("- Tile: (16, 16)")
+        print("- Composition creates hierarchical layout for blocked access")
+        print("- Available: logical_product, tiled_product, blocked_product")
         
-        print("\n✓ Available Rocir Layout Operations:")
-        print("  - Construction: make_shape, make_stride, make_layout")
-        print("  - Query: size, cosize, rank, get_shape, get_stride")
-        print("  - Composition: composition, logical_product, zipped_product,")
-        print("                 tiled_product, flat_product, raked_product, blocked_product")
-        print("  - Partitioning: logical_divide, zipped_divide, tiled_divide, flat_divide,")
-        print("                  local_partition, local_tile")
+        print("\n Available Rocir Layout Operations:")
+        print("- Construction: make_shape, make_stride, make_layout")
+        print("- Query: size, cosize, rank, get_shape, get_stride")
+        print("- Composition: composition, logical_product, zipped_product,")
+        print("tiled_product, flat_product, raked_product, blocked_product")
+        print("- Partitioning: logical_divide, zipped_divide, tiled_divide, flat_divide,")
+        print("local_partition, local_tile")
 
 def test_vector_add():
     """Vector addition using rocir 1D layout"""
@@ -151,7 +151,7 @@ def test_vector_add():
     ip.__exit__(None, None, None)
     
     hsaco = compile_to_hsaco(ctx.module)
-    print(f"✓ Compiled to HSACO: {len(hsaco)} bytes")
+    print(f" Compiled to HSACO: {len(hsaco)} bytes")
     
     np.random.seed(42)
     a_host = np.random.randn(SIZE).astype(np.float32)
@@ -181,7 +181,7 @@ def test_vector_add():
     hip_check(hip.hipMemcpy(c_host.ctypes.data, d_c, SIZE * 4, hip.hipMemcpyKind.hipMemcpyDeviceToHost))
     
     error = np.max(np.abs(c_host - expected))
-    print(f"✓ Max error: {error:.2e}")
+    print(f" Max error: {error:.2e}")
     
     hip_check(hip.hipFree(d_a))
     hip_check(hip.hipFree(d_b))
@@ -255,7 +255,7 @@ def test_matrix_transpose():
     ip.__exit__(None, None, None)
     
     hsaco = compile_to_hsaco(ctx.module)
-    print(f"✓ Compiled to HSACO: {len(hsaco)} bytes")
+    print(f" Compiled to HSACO: {len(hsaco)} bytes")
     
     np.random.seed(123)
     a_host = np.random.randn(M, N).astype(np.float32)
@@ -283,7 +283,7 @@ def test_matrix_transpose():
     hip_check(hip.hipMemcpy(b_host.ctypes.data, d_b, M * N * 4, hip.hipMemcpyKind.hipMemcpyDeviceToHost))
     
     error = np.max(np.abs(b_host - expected))
-    print(f"✓ Max error: {error:.2e}")
+    print(f" Max error: {error:.2e}")
     
     hip_check(hip.hipFree(d_a))
     hip_check(hip.hipFree(d_b))
@@ -381,7 +381,7 @@ def test_matmul():
     ip.__exit__(None, None, None)
     
     hsaco = compile_to_hsaco(ctx.module)
-    print(f"✓ Compiled to HSACO: {len(hsaco)} bytes")
+    print(f" Compiled to HSACO: {len(hsaco)} bytes")
     
     np.random.seed(456)
     a_host = np.random.randn(M, K).astype(np.float32)
@@ -414,8 +414,8 @@ def test_matmul():
     error = np.max(np.abs(c_host - expected))
     rel_error = error / (np.max(np.abs(expected)) + 1e-8)
     
-    print(f"✓ Max absolute error: {error:.2e}")
-    print(f"✓ Max relative error: {rel_error:.2e}")
+    print(f" Max absolute error: {error:.2e}")
+    print(f" Max relative error: {rel_error:.2e}")
     
     hip_check(hip.hipFree(d_a))
     hip_check(hip.hipFree(d_b))
@@ -506,8 +506,8 @@ def test_matmul_shared_memory():
     ip.__exit__(None, None, None)
     
     hsaco = compile_to_hsaco(ctx.module)
-    print(f"✓ Compiled to HSACO: {len(hsaco)} bytes")
-    print(f"✓ Shared memory per block: {2 * TILE_SIZE * TILE_SIZE * 4} bytes")
+    print(f" Compiled to HSACO: {len(hsaco)} bytes")
+    print(f" Shared memory per block: {2 * TILE_SIZE * TILE_SIZE * 4} bytes")
     
     np.random.seed(789)
     a_host = np.random.randn(M, K).astype(np.float32)
@@ -539,8 +539,8 @@ def test_matmul_shared_memory():
     error = np.max(np.abs(c_host - expected))
     rel_error = error / (np.max(np.abs(expected)) + 1e-8)
     
-    print(f"✓ Max absolute error: {error:.2e}")
-    print(f"✓ Max relative error: {rel_error:.2e}")
+    print(f" Max absolute error: {error:.2e}")
+    print(f" Max relative error: {rel_error:.2e}")
     
     hip_check(hip.hipFree(d_a))
     hip_check(hip.hipFree(d_b))
@@ -565,12 +565,12 @@ if __name__ == "__main__":
     
     print("\n" + "="*80)
     if result1 and result2 and result3:
-        print("🎉 ALL GPU TESTS PASSED!")
-        print("\n✅ Rocir Coordinate Operations Fully Integrated:")
-        print("  • Vector operations use rocir 1D layouts")
-        print("  • Matrix operations use rocir 2D row-major layouts")
-        print("  • Coordinate indexing lowered to arithmetic via rocir-opt")
-        print("  • All tests verified on gfx942 GPU")
+        print(" ALL GPU TESTS PASSED!")
+        print("\n Rocir Coordinate Operations Fully Integrated:")
+        print("• Vector operations use rocir 1D layouts")
+        print("• Matrix operations use rocir 2D row-major layouts")
+        print("• Coordinate indexing lowered to arithmetic via rocir-opt")
+        print("• All tests verified on gfx942 GPU")
         sys.exit(0)
     else:
         print("⚠️ SOME TESTS FAILED")

@@ -21,9 +21,9 @@ import ctypes
 
 def compile_to_hsaco(mlir_module):
     # Apply rocir coordinate lowering BEFORE the main pipeline
-    print("  [1/2] Applying rocir-coord-lowering pass...")
+    print("[1/2] Applying rocir-coord-lowering pass...")
     lowered_module = apply_rocir_coord_lowering(mlir_module)
-    print("  [2/2] Running main GPU compilation pipeline...")
+    print("[2/2] Running main GPU compilation pipeline...")
     
     # Now run the main pipeline
     final_module = run_pipeline(
@@ -114,16 +114,16 @@ def test_matmul_with_rocir():
 
     ip.__exit__(None, None, None)
 
-    print("\n✓ Generated MLIR with rocir coordinate operations:")
-    print("  - rocir.make_shape: Defines matrix dimensions")
-    print("  - rocir.make_stride: Specifies row-major layout")
-    print("  - rocir.make_layout: Combines shape and stride")
-    print("  - rocir.make_coord: Creates 2D thread coordinates")
-    print("  - rocir.crd2idx: Converts coord to linear index\n")
+    print("\n Generated MLIR with rocir coordinate operations:")
+    print("- rocir.make_shape: Defines matrix dimensions")
+    print("- rocir.make_stride: Specifies row-major layout")
+    print("- rocir.make_layout: Combines shape and stride")
+    print("- rocir.make_coord: Creates 2D thread coordinates")
+    print("- rocir.crd2idx: Converts coord to linear index\n")
 
     print("Compiling to GPU binary...")
     hsaco = compile_to_hsaco(ctx.module)
-    print(f"✓ Compiled to HSACO: {len(hsaco)} bytes\n")
+    print(f" Compiled to HSACO: {len(hsaco)} bytes\n")
 
     # Run computation
     np.random.seed(456)
@@ -157,8 +157,8 @@ def test_matmul_with_rocir():
     error = np.max(np.abs(c_host - expected))
     rel_error = error / (np.max(np.abs(expected)) + 1e-8)
 
-    print(f"✓ Max absolute error: {error:.2e}")
-    print(f"✓ Max relative error: {rel_error:.2e}")
+    print(f" Max absolute error: {error:.2e}")
+    print(f" Max relative error: {rel_error:.2e}")
 
     hip_check(hip.hipFree(d_a))
     hip_check(hip.hipFree(d_b))
@@ -178,12 +178,12 @@ if __name__ == "__main__":
 
     print("\n" + "="*80)
     if result:
-        print("🎉 TEST PASSED!")
+        print(" TEST PASSED!")
         print("\nDemonstrated:")
-        print("  ✓ Rocir layout algebra integrated into GPU kernel")
-        print("  ✓ Coordinate operations (make_coord, make_layout, crd2idx)")
-        print("  ✓ Lowered to arithmetic via rocir-opt subprocess")
-        print("  ✓ Compiled and executed on gfx942")
+        print("Rocir layout algebra integrated into GPU kernel")
+        print("Coordinate operations (make_coord, make_layout, crd2idx)")
+        print("Lowered to arithmetic via rocir-opt subprocess")
+        print("Compiled and executed on gfx942")
         sys.exit(0)
     else:
         print("⚠️ TEST FAILED")

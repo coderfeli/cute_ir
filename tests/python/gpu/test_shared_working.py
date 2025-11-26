@@ -113,7 +113,7 @@ ip.__exit__(None, None, None)
 print("="*80)
 print("Compiling shared memory matmul...")
 hsaco = compile_to_hsaco(ctx.module)
-print(f"✓ HSACO: {len(hsaco)} bytes")
+print(f" HSACO: {len(hsaco)} bytes")
 
 np.random.seed(42)
 a_host = np.random.randn(M, K).astype(np.float32) * 0.01
@@ -153,16 +153,16 @@ gflops = (2.0 * M * N * K * 1e-9) / (avg_time_ms * 1e-3)
 
 print(f"\n{'='*80}")
 print(f"Results (256x256):")
-print(f"  Time: {avg_time_ms:.3f} ms")
-print(f"  Performance: {gflops:.1f} GFLOPS")
-print(f"  Max error: {error:.2e}")
-print(f"  Relative error: {rel_error:.2e}")
-print(f"  Shared memory: {2 * TILE_SIZE * TILE_SIZE * 4} bytes/block")
+print(f"Time: {avg_time_ms:.3f} ms")
+print(f"Performance: {gflops:.1f} GFLOPS")
+print(f"Max error: {error:.2e}")
+print(f"Relative error: {rel_error:.2e}")
+print(f"Shared memory: {2 * TILE_SIZE * TILE_SIZE * 4} bytes/block")
 print("="*80)
 
 if rel_error < 1e-3:
-    print("\n✅ SHARED MEMORY OPTIMIZATION WORKING!")
-    print("   Solution: memref.global_ with lds_space() + memref.get_global()")
+    print("\n SHARED MEMORY OPTIMIZATION WORKING!")
+    print("Solution: memref.global_ with lds_space() + memref.get_global()")
 else:
     print(f"\n❌ Error: {rel_error:.2e}")
     print(expected[:5,:5])
