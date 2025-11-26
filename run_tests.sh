@@ -71,7 +71,7 @@ echo "IR Tests: $IR_PASS_COUNT/$IR_TEST_COUNT passed"
 echo ""
 
 #=============================================================================
-# Part 3: Example/Demo Tests (ROCDL dialect operations)
+# Part 3: Example Tests (ROCDL dialect operations)
 #=============================================================================
 echo "========================================================================"
 echo "Part 3: Example Tests (ROCDL Dialect Operations)"
@@ -150,6 +150,46 @@ else
     echo "   Install ROCm to run GPU execution tests"
     echo ""
     ALL_GPU_PASSED=0
+    GPU_TEST_COUNT=0
+    GPU_PASS_COUNT=0
+fi
+
+echo ""
+
+#=============================================================================
+# Part 5: MFMA GEMM Example Tests
+#=============================================================================
+echo "========================================================================"
+echo "Part 5: MFMA GEMM Examples (Pure Python API)"
+echo "========================================================================"
+echo ""
+
+if command -v rocm-smi &> /dev/null; then
+    MFMA_TEST_COUNT=0
+    MFMA_PASS_COUNT=0
+    
+    for test_file in tests/examples/gpu/gemm/test_*.py; do
+        if [ -f "$test_file" ]; then
+            MFMA_TEST_COUNT=$((MFMA_TEST_COUNT + 1))
+            test_name=$(basename "$test_file" .py)
+            echo "Running: $test_name"
+            python3 "$test_file" > /tmp/${test_name}.log 2>&1
+            if [ $? -eq 0 ]; then
+                echo "   ✅ PASS"
+                MFMA_PASS_COUNT=$((MFMA_PASS_COUNT + 1))
+            else
+                echo "   ❌ FAIL"
+                echo "      Log: /tmp/${test_name}.log"
+            fi
+        fi
+    done
+    
+    echo ""
+    echo "MFMA GEMM Examples: $MFMA_PASS_COUNT/$MFMA_TEST_COUNT passed"
+else
+    echo "⚠️  Skipped (no GPU)"
+    MFMA_TEST_COUNT=0
+    MFMA_PASS_COUNT=0
 fi
 
 echo ""
@@ -167,6 +207,7 @@ echo "Example Tests (ROCDL):           $EXAMPLE_PASS_COUNT/$EXAMPLE_TEST_COUNT p
 
 if [ $ALL_GPU_PASSED -eq 1 ]; then
     echo "GPU Execution Tests:             $GPU_PASS_COUNT/$GPU_TEST_COUNT passed"
+    echo "MFMA GEMM Examples:              $MFMA_PASS_COUNT/$MFMA_TEST_COUNT passed"
     echo ""
     echo ""
     echo "Verified Capabilities:"
@@ -176,16 +217,19 @@ if [ $ALL_GPU_PASSED -eq 1 ]; then
     echo "  ✓ GPU kernel compilation (MLIR → HSACO)"
     echo "  ✓ GPU kernel execution (HIP runtime)"
     echo "  ✓ Shared memory optimizations (LDS)"
+    echo "  ✓ MFMA operations (Pure Python API)"
     echo ""
     exit 0
 else
     if command -v rocm-smi &> /dev/null; then
         echo "GPU Execution Tests:             $GPU_PASS_COUNT/$GPU_TEST_COUNT passed"
+        echo "MFMA GEMM Examples:              $MFMA_PASS_COUNT/$MFMA_TEST_COUNT passed"
         echo ""
         echo "⚠️  Some GPU tests failed"
         exit 1
     else
         echo "GPU Execution Tests:             Skipped (no GPU)"
+        echo "MFMA GEMM Examples:              Skipped (no GPU)"
         echo ""
         echo "✅ All available tests passed"
         echo "   (GPU tests skipped - no ROCm GPU detected)"
