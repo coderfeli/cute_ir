@@ -61,8 +61,8 @@ def matmul_shared(A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.m
     As = memref.get_global(tile_type, "A_shared_tile")
     Bs = memref.get_global(tile_type, "B_shared_tile")
     
-    row = arith.addi(arith.muli(gpu.block_id("y"), arith.constant(T.index(), TILE_SIZE)), gpu.thread_id("y"))
-    col = arith.addi(arith.muli(gpu.block_id("x"), arith.constant(T.index(), TILE_SIZE)), gpu.thread_id("x"))
+    row = (gpu.block_id("y") * arith.constant(T.index(), TILE_SIZE) + gpu.thread_id("y"))._value
+    col = (gpu.block_id("x") * arith.constant(T.index(), TILE_SIZE) + gpu.thread_id("x"))._value
     
     tx = gpu.thread_id("x")
     ty = gpu.thread_id("y")
@@ -76,37 +76,37 @@ def matmul_shared(A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.m
     acc = zero_f
     num_tiles = arith.constant(T.index(), K // TILE_SIZE)
     
-    for_tiles = scf.ForOp(zero, num_tiles, one, [acc])
+    for_tiles = scf.ForOp(zero.value, num_tiles.value, one.value, [acc.value])
     with ir.InsertionPoint(for_tiles.body):
         t = for_tiles.induction_variable
         acc_val = for_tiles.inner_iter_args[0]
-        k_base = arith.muli(t, tile_c)
+        k_base = (t * tile_c)._value
         
-        a_col = arith.addi(k_base, tx)
-        a_val = memref.load(A, [row, a_col])
-        memref.store(a_val, As, [ty, tx])
+        a_col = (k_base + tx)._value
+        a_val = memref.load(A, [row.value, a_col.value])
+        memref.store(a_val.value, As, [ty.value, tx.value])
         
-        b_row = arith.addi(k_base, ty)
-        b_val = memref.load(B, [b_row, col])
-        memref.store(b_val, Bs, [ty, tx])
+        b_row = (k_base + ty)._value
+        b_val = memref.load(B, [b_row.value, col.value])
+        memref.store(b_val.value, Bs, [ty.value, tx.value])
         
         gpu.barrier()
         
-        for_k = scf.ForOp(zero, tile_c, one, [acc_val])
+        for_k = scf.ForOp(zero.value, tile_c.value, one.value, [acc_val.value])
         with ir.InsertionPoint(for_k.body):
             k_local = for_k.induction_variable
             acc_k = for_k.inner_iter_args[0]
             
-            a_smem = memref.load(As, [ty, k_local])
-            b_smem = memref.load(Bs, [k_local, tx])
-            new_acc = arith.addf(acc_k, arith.mulf(a_smem, b_smem))
+            a_smem = memref.load(As, [ty.value, k_local.value])
+            b_smem = memref.load(Bs, [k_local.value, tx.value])
+            new_acc = (acc_k + a_smem * b_smem)._value
             
-            scf.yield_([new_acc])
+            scf.yield_([new_acc.value])
         
         gpu.barrier()
-        scf.yield_([for_k.results[0]])
+        scf.yield_([for_k.results[0].value if hasattr(for_k.results[0], "value") else for_k.results[0]])
     
-    memref.store(for_tiles.results[0], C, [row, col])
+    memref.store(for_tiles.results[0].value if hasattr(for_tiles.results[0], "value") else for_tiles.results[0], C, [row.value, col.value])
 
 ip.__exit__(None, None, None)
 

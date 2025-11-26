@@ -68,8 +68,8 @@ def test_matmul_with_rocir():
         ty = gpu.thread_id("y")
 
         # Compute thread coordinates
-        row = arith.addi(arith.muli(by, arith.constant(T.index(), 16)), ty)
-        col = arith.addi(arith.muli(bx, arith.constant(T.index(), 16)), tx)
+        row = (by * arith.constant(T.index(), 16) + ty)._value
+        col = (bx * arith.constant(T.index(), 16) + tx)._value
 
         m_c = arith.constant(T.index(), M)
         n_c = arith.constant(T.index(), N)
@@ -87,29 +87,29 @@ def test_matmul_with_rocir():
         # Use crd2idx to compute linear index (will be lowered to arith ops)
         linear_idx = rocir.crd2idx(thread_coord, c_layout)
 
-        row_valid = arith.cmpi(arith.CmpIPredicate.slt, row, m_c)
-        col_valid = arith.cmpi(arith.CmpIPredicate.slt, col, n_c)
-        valid = arith.andi(row_valid, col_valid)
+        row_valid = (row < m_c)._value
+        col_valid = (col < n_c)._value
+        valid = (row_valid & col_valid)._value
 
-        with ir.InsertionPoint(scf.IfOp(valid).then_block):
+        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
             sum_val = arith.constant(T.f32(), 0.0)
             k_idx = arith.constant(T.index(), 0)
 
-            for_op = scf.ForOp(k_idx, k_c, one, [sum_val])
+            for_op = scf.ForOp(k_idx.value, k_c.value, one.value, [sum_val.value])
             with ir.InsertionPoint(for_op.body):
                 k = for_op.induction_variable
                 acc = for_op.inner_iter_args[0]
 
-                a_val = memref.load(A, [row, k])
-                b_val = memref.load(B, [k, col])
+                a_val = memref.load(A, [row.value, k.value])
+                b_val = memref.load(B, [k.value, col.value])
 
-                prod = arith.mulf(a_val, b_val)
-                new_acc = arith.addf(acc, prod)
+                prod = (a_val * b_val)._value
+                new_acc = (acc + prod)._value
 
-                scf.yield_([new_acc])
+                scf.yield_([new_acc.value])
 
             result = for_op.results[0]
-            memref.store(result, C, [row, col])
+            memref.store(result.value, C, [row.value, col.value])
             scf.yield_([])
 
     ip.__exit__(None, None, None)

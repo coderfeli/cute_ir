@@ -10,11 +10,11 @@ sys.path.insert(0, "/mnt/raid0/felix/rocDSL/python")
 
 from rocdsl.compiler.context import RAIIMLIRContextModule
 from rocdsl.compiler.pipeline import Pipeline, run_pipeline
-from rocdsl.dialects.ext import gpu
+from rocdsl.dialects.ext import gpu, arith
 
 import numpy as np
 from mlir import ir
-from mlir.dialects import arith, memref
+from mlir.dialects import memref
 import mlir.extras.types as T
 
 
@@ -43,15 +43,15 @@ def test_vector_add():
         tx, ty = gpu.thread_id("x"), gpu.thread_id("y")
         bdx, bdy = gpu.block_dim("x"), gpu.block_dim("y")
         
-        # Calculate global thread index
-        row = arith.addi(arith.muli(by, bdy), ty)
-        col = arith.addi(arith.muli(bx, bdx), tx)
+        # Calculate global thread index - 直接使用操作符（自动类型转换）
+        row = (by * bdy + ty)._value
+        col = (bx * bdx + tx)._value
         
         # Vector addition: C[row,col] = A[row,col] + B[row,col]
-        a = memref.load(A, [row, col])
-        b = memref.load(B, [row, col])
-        c = arith.addf(a, b)
-        memref.store(c, C, [row, col])
+        a = memref.load(A, [row.value, col.value])
+        b = memref.load(B, [row.value, col.value])
+        c = (a + b)._value
+        memref.store(c.value, C, [row.value, col.value])
     
     ip.__exit__(None, None, None)
     assert gpu_module.operation.verify()

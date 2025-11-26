@@ -59,8 +59,8 @@ def test_layout_based_transpose():
         tx, ty = gpu.thread_id("x"), gpu.thread_id("y")
         bdx, bdy = gpu.block_dim("x"), gpu.block_dim("y")
         
-        row = arith.addi(arith.muli(by, bdy), ty)
-        col = arith.addi(arith.muli(bx, bdx), tx)
+        row = (by * bdy + ty)._value
+        col = (bx * bdx + tx)._value
         
         # Create layout constants
         M_c, N_c = Const.index(M), Const.index(N)
@@ -77,15 +77,13 @@ def test_layout_based_transpose():
         output_layout = rocir.make_layout(output_shape, output_stride)
         
         # Bounds check
-        valid = arith.andi(
-            arith.cmpi(arith.CmpIPredicate.slt, row, M_c),
-            arith.cmpi(arith.CmpIPredicate.slt, col, N_c)
+        valid = ((row < M_c)._value & (col < N_c)._value._value
         )
         
         # Transpose: Input[row,col] -> Output[col,row]
-        with ir.InsertionPoint(scf.IfOp(valid).then_block):
-            val = memref.load(Input, [row, col])
-            memref.store(val, Output, [col, row])
+        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+            val = memref.load(Input, [row.value if hasattr(row, "value") else row, col.value if hasattr(col, "value") else col])
+            memref.store(val.value if hasattr(val, "value") else val, Output, [col.value if hasattr(col, "value") else col, row.value if hasattr(row, "value") else row])
             scf.yield_([])
     
     ip.__exit__(None, None, None)
@@ -135,8 +133,8 @@ def test_strided_layout_access():
         tx, ty = gpu.thread_id("x"), gpu.thread_id("y")
         bdx, bdy = gpu.block_dim("x"), gpu.block_dim("y")
         
-        row = arith.addi(arith.muli(by, bdy), ty)
-        col = arith.addi(arith.muli(bx, bdx), tx)
+        row = (by * bdy + ty)._value
+        col = (bx * bdx + tx)._value
         
         # Layout constants
         M_c, N_c = Const.index(M), Const.index(N)
@@ -153,19 +151,17 @@ def test_strided_layout_access():
         output_size = rocir.size(output_layout)
         
         # Bounds check
-        valid = arith.andi(
-            arith.cmpi(arith.CmpIPredicate.slt, row, M_c),
-            arith.cmpi(arith.CmpIPredicate.slt, col, N_c)
+        valid = ((row < M_c)._value & (col < N_c)._value._value
         )
         
         # Strided copy with scaling
-        with ir.InsertionPoint(scf.IfOp(valid).then_block):
-            in_idx = arith.addi(arith.muli(row, in_s), col)
-            out_idx = arith.addi(arith.muli(row, out_s), col)
+        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+            in_idx = (row * in_s + col)._value
+            out_idx = (row * out_s + col)._value
             
-            val = memref.load(Input, [in_idx])
-            result = arith.mulf(val, Const.f32(2.0))
-            memref.store(result, Output, [out_idx])
+            val = memref.load(Input, [in_idx.value if hasattr(in_idx, "value") else in_idx])
+            result = (val * Const.f32(2.0)._value)
+            memref.store(result.value if hasattr(result, "value") else result, Output, [out_idx.value if hasattr(out_idx, "value") else out_idx])
             scf.yield_([])
     
     ip.__exit__(None, None, None)
@@ -212,8 +208,8 @@ def test_tiled_layout():
         bdx, bdy = gpu.block_dim("x"), gpu.block_dim("y")
         
         # Global thread position
-        row = arith.addi(arith.muli(by, bdy), ty)
-        col = arith.addi(arith.muli(bx, bdx), tx)
+        row = (by * bdy + ty)._value
+        col = (bx * bdx + tx)._value
         
         # Constants
         M_c, N_c = Const.index(M), Const.index(N)
@@ -234,15 +230,13 @@ def test_tiled_layout():
         partitioned = rocir.logical_divide(global_layout, tiler_layout)
         
         # Bounds check
-        valid = arith.andi(
-            arith.cmpi(arith.CmpIPredicate.slt, row, M_c),
-            arith.cmpi(arith.CmpIPredicate.slt, col, N_c)
+        valid = ((row < M_c)._value & (col < N_c)._value._value
         )
         
         # Copy with layout awareness
-        with ir.InsertionPoint(scf.IfOp(valid).then_block):
-            val = memref.load(Input, [row, col])
-            memref.store(val, Output, [row, col])
+        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+            val = memref.load(Input, [row.value if hasattr(row, "value") else row, col.value if hasattr(col, "value") else col])
+            memref.store(val.value if hasattr(val, "value") else val, Output, [row.value if hasattr(row, "value") else row, col.value if hasattr(col, "value") else col])
             scf.yield_([])
     
     ip.__exit__(None, None, None)

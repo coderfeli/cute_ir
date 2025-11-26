@@ -11,21 +11,17 @@ from mlir.ir import (
 from mlir.dialects import arith as _arith
 from mlir.dialects._ods_common import get_op_result_or_op_results
 
-
 def _is_integer_like_type(t: Type) -> bool:
     """Check if type is integer-like (including index)."""
     return IntegerType.isinstance(t) or IndexType.isinstance(t)
-
 
 def _is_floating_point_type(t: Type) -> bool:
     """Check if type is floating point."""
     return F32Type.isinstance(t) or F64Type.isinstance(t)
 
-
 def _is_index_type(t: Type) -> bool:
     """Check if type is index."""
     return IndexType.isinstance(t)
-
 
 def _infer_mlir_type(value, vector=False):
     """Infer MLIR type from Python value."""
@@ -41,7 +37,6 @@ def _infer_mlir_type(value, vector=False):
         raise NotImplementedError("Tensor type inference not yet implemented")
     else:
         raise ValueError(f"Cannot infer MLIR type from {type(value)}")
-
 
 def constant(
     value: Union[int, float, bool],
@@ -76,31 +71,31 @@ def constant(
     result = _arith.ConstantOp(mlir_type, value, loc=loc, ip=ip).result
     return ArithValue(result)
 
-
 def index(value: int, *, loc: Location = None, ip: InsertionPoint = None) -> "ArithValue":
     """Create an index constant."""
     return constant(value, index=True, loc=loc, ip=ip)
-
 
 def i32(value: int, *, loc: Location = None, ip: InsertionPoint = None) -> "ArithValue":
     """Create an i32 constant."""
     return constant(value, type=IntegerType.get_signless(32), loc=loc, ip=ip)
 
-
 def i64(value: int, *, loc: Location = None, ip: InsertionPoint = None) -> "ArithValue":
     """Create an i64 constant."""
     return constant(value, type=IntegerType.get_signless(64), loc=loc, ip=ip)
-
 
 def f32(value: float, *, loc: Location = None, ip: InsertionPoint = None) -> "ArithValue":
     """Create an f32 constant."""
     return constant(value, type=F32Type.get(), loc=loc, ip=ip)
 
-
 def f64(value: float, *, loc: Location = None, ip: InsertionPoint = None) -> "ArithValue":
     """Create an f64 constant."""
     return constant(value, type=F64Type.get(), loc=loc, ip=ip)
 
+def _unwrap_value(val):
+    """递归unwrap ArithValue，获取底层的 ir.Value"""
+    while isinstance(val, ArithValue):
+        val = val._value
+    return val
 
 def _binary_op(
     lhs: "ArithValue",
@@ -143,21 +138,22 @@ def _binary_op(
         elif op == "mod":
             op_name = "RemSI"  # Signed integer remainder
         else:
-            op_name += "I"
+            if op in ["and", "or", "xor"]:
+                op_name = op.capitalize() + "I"  # AndI, OrI, XorI
+            else:
+                op_name += "I"
     else:
         raise NotImplementedError(f"Unsupported operand types for {op}: {lhs._value.type if isinstance(lhs, ArithValue) else lhs.type}")
     
     # Get the operation class
     op_class = getattr(_arith, f"{op_name}Op")
-    result = op_class(lhs._value if isinstance(lhs, ArithValue) else lhs, rhs._value if isinstance(rhs, ArithValue) else rhs, loc=loc).result
+    result = op_class(_unwrap_value(lhs) if isinstance(lhs, ArithValue) else lhs, _unwrap_value(rhs) if isinstance(rhs, ArithValue) else rhs, loc=loc).result
     
     return ArithValue(result)
-
 
 def _rbinary_op(rhs: "ArithValue", lhs: "ArithValue", op: str, *, loc: Location = None) -> "ArithValue":
     """Reverse binary operation (for right-hand operations)."""
     return _binary_op(lhs, rhs, op, loc=loc)
-
 
 def _comparison_op(
     lhs: "ArithValue",
@@ -199,7 +195,6 @@ def _comparison_op(
     
     return ArithValue(result)
 
-
 class ArithValue:
     """Value wrapper with operator overloading for Pythonic arithmetic.
     
@@ -229,6 +224,12 @@ class ArithValue:
     __truediv__ = partialmethod(_binary_op, op="div")
     __floordiv__ = partialmethod(_binary_op, op="div")
     __mod__ = partialmethod(_binary_op, op="mod")
+
+    # Bitwise operators
+    __and__ = partialmethod(_binary_op, op="and")
+    __or__ = partialmethod(_binary_op, op="or")
+    __xor__ = partialmethod(_binary_op, op="xor")
+
     
     # Reverse arithmetic operators (for when left operand is Python type)
     __radd__ = partialmethod(_rbinary_op, op="add")
@@ -249,9 +250,8 @@ class ArithValue:
     # Allow unwrapping for MLIR operations
     @property
     def value(self) -> Value:
-        """Get the underlying MLIR Value."""
-        return self._value
-
+        """Get the underlying MLIR Value (递归unwrap)."""
+        return _unwrap_value(self)
 
 # Re-export commonly used arith operations
 from mlir.dialects.arith import (
@@ -271,3 +271,13 @@ __all__ = [
     "IndexCastOp", "ExtSIOp", "TruncIOp", "ExtFOp", "TruncFOp",
     "SIToFPOp", "FPToSIOp", "SelectOp",
 ]
+
+# 注册自动类型转换：所有 MLIR Value 自动包装为 ArithValue，支持操作符重载
+# 参考 mlir-python-extras 的实现
+try:
+    from mlir._mlir_libs._mlir import register_value_caster
+    for t in [F32Type, F64Type, IndexType, IntegerType]:
+        register_value_caster(t.static_typeid)(ArithValue)
+    print("✓ ArithValue 自动类型转换已注册")
+except Exception as e:
+    print(f"Warning: 无法注册 value caster: {e}")
