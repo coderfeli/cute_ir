@@ -456,8 +456,8 @@ def test_matmul_shared_memory():
         As = memref.get_global(tile_type, "A_shared_tile")
         Bs = memref.get_global(tile_type, "B_shared_tile")
         
-        row = AddIOp(MulIOp(gpu.block_id("y"), arith.index(TILE_SIZE)._value), gpu.thread_id("y"))
-        col = AddIOp(MulIOp(gpu.block_id("x"), arith.index(TILE_SIZE)._value), gpu.thread_id("x"))
+        row = (gpu.block_id("y") * arith.index(TILE_SIZE) + gpu.thread_id("y"))._value
+        col = (gpu.block_id("x") * arith.index(TILE_SIZE) + gpu.thread_id("x"))._value
         
         tx = gpu.thread_id("x")
         ty = gpu.thread_id("y")
@@ -475,19 +475,19 @@ def test_matmul_shared_memory():
         with ir.InsertionPoint(for_tiles.body):
             t = for_tiles.induction_variable
             acc_val = for_tiles.inner_iter_args[0]
-            k_base = MulIOp(t, tile_c)
+            k_base = (t * tile_c)._value
             
-            a_col = AddIOp(k_base, tx)
+            a_col = (k_base + tx)._value
             a_val = memref.load(A, [row.value if hasattr(row, "value") else row, a_col.value if hasattr(a_col, "value") else a_col])
             memref.store(a_val.value if hasattr(a_val, "value") else a_val, As, [ty.value if hasattr(ty, "value") else ty, tx.value if hasattr(tx, "value") else tx])
             
-            b_row = AddIOp(k_base, ty)
+            b_row = (k_base + ty)._value
             b_val = memref.load(B, [b_row.value if hasattr(b_row, "value") else b_row, col.value if hasattr(col, "value") else col])
             memref.store(b_val.value if hasattr(b_val, "value") else b_val, Bs, [ty.value if hasattr(ty, "value") else ty, tx.value if hasattr(tx, "value") else tx])
             
             gpu.barrier()
             
-            for_k = scf.ForOp(zero.value, tile_c.value, one.value, [acc_val])
+            for_k = scf.ForOp(zero.value, tile_c.value, one.value, [acc_val.value if hasattr(acc_val, "value") else acc_val])
             with ir.InsertionPoint(for_k.body):
                 k_local = for_k.induction_variable
                 acc_k = for_k.inner_iter_args[0]
@@ -501,7 +501,7 @@ def test_matmul_shared_memory():
             gpu.barrier()
             scf.yield_([for_k.results[0].value if hasattr(for_k.results[0], "value") else for_k.results[0]])
         
-        memref.store(for_tiles.results[0], C, [row, col])
+        memref.store(for_tiles.results[0].value if hasattr(for_tiles.results[0], "value") else for_tiles.results[0], C, [row.value if hasattr(row, "value") else row, col.value if hasattr(col, "value") else col])
     
     ip.__exit__(None, None, None)
     
@@ -562,9 +562,10 @@ if __name__ == "__main__":
     result1 = test_vector_add()
     result2 = test_matrix_transpose()
     result3 = test_matmul()
+    result4 = test_matmul_shared_memory()
     
     print("\n" + "="*80)
-    if result1 and result2 and result3:
+    if result1 and result2 and result3 and result4:
         print(" ALL GPU TESTS PASSED!")
         print("\n Rocir Coordinate Operations Fully Integrated:")
         print("• Vector operations use rocir 1D layouts")
