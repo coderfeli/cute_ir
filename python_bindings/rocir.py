@@ -7,6 +7,18 @@ from mlir.dialects._ods_common import _cext as _ods_cext
 from _rocir_ops_gen import *
 from _rocir_ops_gen import _Dialect
 
+# Import generated enums
+try:
+    from _rocir_enum_gen import *
+except ImportError:
+    pass
+
+# Import generated ROCm ops
+try:
+    from _rocir_rocm_ops_gen import *
+except ImportError:
+    pass
+
 # Register the dialect when imported
 try:
     # The dialect is automatically registered via @_ods_cext.register_dialect decorator

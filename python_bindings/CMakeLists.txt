@@ -2,17 +2,22 @@
 
 add_custom_target(RocirPythonModules)
 
-set(LLVM_TARGET_DEFINITIONS ${CMAKE_SOURCE_DIR}/include/rocir/RocirOps.td)
+set(LLVM_TARGET_DEFINITIONS ${CMAKE_SOURCE_DIR}/include/rocir/RocirPython.td)
 
 # Add include path for TableGen
 set(MLIR_TABLEGEN_EXE ${MLIR_TABLEGEN_EXE})
 list(APPEND LLVM_TABLEGEN_FLAGS -I ${CMAKE_SOURCE_DIR}/include)
 list(APPEND LLVM_TABLEGEN_FLAGS -I ${CMAKE_SOURCE_DIR}/include/rocir)
 
-# Generate Python bindings
+# Generate Python bindings for rocir dialect
 mlir_tablegen(_rocir_ops_gen.py -gen-python-op-bindings -bind-dialect=rocir)
 add_public_tablegen_target(RocirPythonOpsIncGen)
 add_dependencies(RocirPythonModules RocirPythonOpsIncGen)
+
+# Generate Python bindings for cute_rocm dialect
+mlir_tablegen(_rocir_rocm_ops_gen.py -gen-python-op-bindings -bind-dialect=cute_rocm)
+add_public_tablegen_target(RocirRocmPythonOpsIncGen)
+add_dependencies(RocirPythonModules RocirRocmPythonOpsIncGen)
 
 # Generate Python enum bindings if needed
 mlir_tablegen(_rocir_enum_gen.py -gen-python-enum-bindings)
@@ -84,6 +89,13 @@ add_custom_command(
     COMMAND sed -i 's/from \._ods_common/from mlir.dialects._ods_common/g' 
         ${CMAKE_CURRENT_BINARY_DIR}/_rocir_ops_gen.py
     COMMENT "Fixing imports in generated Python bindings"
+)
+
+add_custom_command(
+    TARGET RocirRocmPythonOpsIncGen POST_BUILD
+    COMMAND sed -i 's/from \._ods_common/from mlir.dialects._ods_common/g' 
+        ${CMAKE_CURRENT_BINARY_DIR}/_rocir_rocm_ops_gen.py
+    COMMENT "Fixing imports in generated Python bindings for cute_rocm"
 )
 
 # Copy Python wrapper files to build directory at configure time

@@ -7,7 +7,7 @@
 #ifndef ROCIR_ROCM_OPS
 #define ROCIR_ROCM_OPS
 
-include "cute/RocirRocmDialect.td"
+include "rocir/RocirRocmDialect.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 

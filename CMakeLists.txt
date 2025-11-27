@@ -10,7 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BUILD_RUNTIME "Build C++ runtime library" ON)
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
 option(BUILD_TESTS "Build tests" OFF)
-option(ENABLE_ROCM "Enable AMD ROCm support for GFX942" OFF)  # Disabled by default - CUDA only
+option(ENABLE_ROCM "Enable AMD ROCm support (GFX942/GFX950)" OFF)  # Disabled by default - CUDA only
 
 # Find MLIR (optional)
 find_package(MLIR CONFIG)
