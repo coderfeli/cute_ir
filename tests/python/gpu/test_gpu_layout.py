@@ -82,11 +82,10 @@ def test_layout_based_transpose():
         )
         
         # Transpose: Input[row,col] -> Output[col,row]
-        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+        if valid:
             val = memref.load(Input, [row.value if hasattr(row, "value") else row, col.value if hasattr(col, "value") else col])
             memref.store(val.value if hasattr(val, "value") else val, Output, [col.value if hasattr(col, "value") else col, row.value if hasattr(row, "value") else row])
-            scf.yield_([])
-    
+
     ip.__exit__(None, None, None)
     assert gpu_module.operation.verify()
     
@@ -156,15 +155,14 @@ def test_strided_layout_access():
         )
         
         # Strided copy with scaling
-        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+        if valid:
             in_idx = (row * in_s + col)._value
             out_idx = (row * out_s + col)._value
             
             val = memref.load(Input, [in_idx.value if hasattr(in_idx, "value") else in_idx])
             result = (val * Const.f32(2.0)._value)
             memref.store(result.value if hasattr(result, "value") else result, Output, [out_idx.value if hasattr(out_idx, "value") else out_idx])
-            scf.yield_([])
-    
+
     ip.__exit__(None, None, None)
     assert gpu_module.operation.verify()
     
@@ -235,11 +233,10 @@ def test_tiled_layout():
         )
         
         # Copy with layout awareness
-        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+        if valid:
             val = memref.load(Input, [row.value if hasattr(row, "value") else row, col.value if hasattr(col, "value") else col])
             memref.store(val.value if hasattr(val, "value") else val, Output, [row.value if hasattr(row, "value") else row, col.value if hasattr(col, "value") else col])
-            scf.yield_([])
-    
+
     ip.__exit__(None, None, None)
     assert gpu_module.operation.verify()
     

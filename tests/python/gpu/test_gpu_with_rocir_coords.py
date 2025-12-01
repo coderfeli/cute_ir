@@ -93,7 +93,7 @@ def test_matmul_with_rocir():
         col_valid = (col < n_c)._value
         valid = (row_valid & col_valid)._value
 
-        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+        if valid:
             sum_val = arith.constant(T.f32(), 0.0)
             k_idx = arith.constant(T.index(), 0)
 
@@ -112,7 +112,6 @@ def test_matmul_with_rocir():
 
             result = for_op.results[0]
             memref.store(result.value, C, [row.value, col.value])
-            scf.yield_([])
 
     ip.__exit__(None, None, None)
 

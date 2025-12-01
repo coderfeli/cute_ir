@@ -203,10 +203,8 @@ def construct_module():
                 row_b_lds = row_b_lds_base + lane_mod_16
                 
                 # Main Loop K
-                loop = scf.ForOp(c0, c_k, c128, iter_args=[unwrap(acc_init)])
-                with ir.InsertionPoint(loop.body):
-                    k = loop.induction_variable
-                    current_acc = loop.inner_iter_args[0]
+                current_acc = acc_init
+                for k in range(0, c_k, c128):
                     
                     # Load A using Rocir
                     col_a_global_k = k + col_a_local
@@ -227,11 +225,8 @@ def construct_module():
                     gpu.BarrierOp()
                     
                     # Inner Loop
-                    inner_loop = scf.ForOp(c0, c128, c32, iter_args=[unwrap(current_acc)])
-                    with ir.InsertionPoint(inner_loop.body):
-                        ki = inner_loop.induction_variable
-                        curr_acc_inner = inner_loop.inner_iter_args[0]
-                        
+                    acc = current_acc
+                    for ki in range(0, 128, 32):
                         # Calculate LDS indices using Rocir
                         col_lds = ki + col_offset_base
                         
@@ -259,16 +254,15 @@ def construct_module():
                         a_pack = vector.ExtractOp(a_vec64, static_position=[0], dynamic_position=[]).result
                         b_pack = vector.ExtractOp(b_vec64, static_position=[0], dynamic_position=[]).result
                         
-                        new_acc = rocdl.mfma_f32_16x16x32_fp8_fp8(
-                            vec4_f32, [unwrap(a_pack), unwrap(b_pack), curr_acc_inner, unwrap(c0_i32), unwrap(c0_i32), unwrap(c0_i32)]
+                        acc = rocdl.mfma_f32_16x16x32_fp8_fp8(
+                            vec4_f32, [unwrap(a_pack), unwrap(b_pack), unwrap(acc), unwrap(c0_i32), unwrap(c0_i32), unwrap(c0_i32)]
                         ).result
                         
-                        scf.YieldOp([new_acc])
-                        
                     gpu.BarrierOp()
-                    scf.YieldOp([inner_loop.results[0]])
-                
-                final_acc = loop.results[0]
+                    current_acc = acc
+
+                final_acc = current_acc
+
                 
                 # Store Result using Rocir
                 lane_div_16 = lane_id // c16

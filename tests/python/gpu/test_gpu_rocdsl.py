@@ -144,14 +144,13 @@ def test_vector_add():
         linear_idx = rocir.crd2idx(thread_coord, vec_layout)
         
         valid = (tid < size_c)._value
-        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+        if valid:
             # Use layout-computed linear index for memory access
             a = memref.load(A, [linear_idx.value if hasattr(linear_idx, "value") else linear_idx])
             b = memref.load(B, [linear_idx.value if hasattr(linear_idx, "value") else linear_idx])
             c = (a + b)._value
             memref.store(c.value if hasattr(c, "value") else c, C, [linear_idx.value if hasattr(linear_idx, "value") else linear_idx])
-            scf.yield_([])
-    
+
     ip.__exit__(None, None, None)
     
     hsaco = compile_to_hsaco(ctx.module)
@@ -251,11 +250,10 @@ def test_matrix_transpose():
         col_valid = (col < n_c)._value
         valid = (row_valid & col_valid)._value
         
-        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+        if valid:
             val = memref.load(A, [row.value if hasattr(row, "value") else row, col.value if hasattr(col, "value") else col])
             memref.store(val.value if hasattr(val, "value") else val, B, [col.value if hasattr(col, "value") else col, row.value if hasattr(row, "value") else row])
-            scf.yield_([])
-    
+
     ip.__exit__(None, None, None)
     
     hsaco = compile_to_hsaco(ctx.module)
@@ -353,7 +351,7 @@ def test_matmul():
         col_valid = (col < n_c)._value
         valid = (row_valid & col_valid)._value
         
-        with ir.InsertionPoint(scf.IfOp(valid.value).then_block):
+        if valid:
             sum_val = arith.f32(0.0)
             k_idx = arith.index(0)._value
             
@@ -380,8 +378,7 @@ def test_matmul():
             result = for_op.results[0]
             # Use layout-computed linear index for C
             memref.store(result.value if hasattr(result, "value") else result, C, [c_idx.value if hasattr(c_idx, "value") else c_idx])
-            scf.yield_([])
-    
+
     ip.__exit__(None, None, None)
     
     hsaco = compile_to_hsaco(ctx.module)
