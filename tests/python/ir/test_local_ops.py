@@ -10,11 +10,7 @@ sys.path.insert(0, '/mnt/raid0/felix/rocDSL/python')
 from mlir.ir import InsertionPoint
 from mlir.dialects import func
 
-try:
-    from rocdsl.dialects.ext import arith, cute
-except ImportError:
-    print("SKIPPED: CuTe dialect not available (not yet implemented)")
-    sys.exit(0)
+from rocdsl.dialects.ext import arith, rocir
 
 
 def test_local_partition(ctx):
@@ -22,12 +18,12 @@ def test_local_partition(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_local_partition")
         def test_partition():
-            c128 = arith.constant(128, index=True)
-            c256 = arith.constant(256, index=True)
-            c8 = arith.constant(8, index=True)
-            c16 = arith.constant(16, index=True)
-            c0 = arith.constant(0, index=True)
-            c1 = arith.constant(1, index=True)
+            c128 = 128
+            c256 = 256
+            c8 = 8
+            c16 = 16
+            c0 = 0
+            c1 = 1
             
             # Global tensor: 128x256
             global_shape = rocir.make_shape(c128, c256)
@@ -47,7 +43,7 @@ def test_local_partition(ctx):
             threads_n = c256 // c16
             total_threads = threads_m * threads_n  # Pythonic multiplication
             
-            return partitioned
+            return [partitioned]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -60,12 +56,12 @@ def test_local_tile(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_local_tile")
         def test_tile():
-            c64 = arith.constant(64, index=True)
-            c128 = arith.constant(128, index=True)
-            c4 = arith.constant(4, index=True)
-            c8 = arith.constant(8, index=True)
-            c0 = arith.constant(0, index=True)
-            c1 = arith.constant(1, index=True)
+            c64 = 64
+            c128 = 128
+            c4 = 4
+            c8 = 8
+            c0 = 0
+            c1 = 1
             
             # Base layout: 64x128
             base_shape = rocir.make_shape(c64, c128)
@@ -85,7 +81,7 @@ def test_local_tile(ctx):
             tiles_n = c128 // c8
             elements_per_tile = c4 * c8
             
-            return tiled
+            return [tiled]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -98,11 +94,11 @@ def test_local_partition_rank2(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_partition_2d")
         def test_2d_partition():
-            c1024 = arith.constant(1024, index=True)
-            c32 = arith.constant(32, index=True)
-            c16 = arith.constant(16, index=True)
-            c5 = arith.constant(5, index=True)
-            c1 = arith.constant(1, index=True)
+            c1024 = 1024
+            c32 = 32
+            c16 = 16
+            c5 = 5
+            c1 = 1
             
             # Large tensor: 1024x1024
             tensor_shape = rocir.make_shape(c1024, c1024)
@@ -123,7 +119,7 @@ def test_local_partition_rank2(ctx):
             elems_per_thread_n = c1024 // c32
             total_per_thread = elems_per_thread_m * elems_per_thread_n
             
-            return partitioned
+            return [partitioned]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -136,11 +132,11 @@ def test_local_tile_rank2(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_tile_2d")
         def test_2d_tile():
-            c512 = arith.constant(512, index=True)
-            c16 = arith.constant(16, index=True)
-            c8 = arith.constant(8, index=True)
-            c3 = arith.constant(3, index=True)
-            c1 = arith.constant(1, index=True)
+            c512 = 512
+            c16 = 16
+            c8 = 8
+            c3 = 3
+            c1 = 1
             
             # Medium tensor: 512x512
             tensor_shape = rocir.make_shape(c512, c512)
@@ -160,7 +156,7 @@ def test_local_tile_rank2(ctx):
             num_tiles_n = c512 // c8
             tile_area = c16 * c8
             
-            return tiled
+            return [tiled]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -173,14 +169,14 @@ def test_combined_local_ops(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_combined")
         def test_combined():
-            c256 = arith.constant(256, index=True)
-            c512 = arith.constant(512, index=True)
-            c16 = arith.constant(16, index=True)
-            c32 = arith.constant(32, index=True)
-            c4 = arith.constant(4, index=True)
-            c8 = arith.constant(8, index=True)
-            c0 = arith.constant(0, index=True)
-            c1 = arith.constant(1, index=True)
+            c256 = 256
+            c512 = 512
+            c16 = 16
+            c32 = 32
+            c4 = 4
+            c8 = 8
+            c0 = 0
+            c1 = 1
             
             # Global: 256x512
             global_shape = rocir.make_shape(c256, c512)
@@ -214,7 +210,7 @@ def test_combined_local_ops(ctx):
             # Elements per tile
             elems_per_tile = c4 * c8
             
-            return tiled
+            return [tiled]
     
     ctx.module.operation.verify()
     # Apply lowering

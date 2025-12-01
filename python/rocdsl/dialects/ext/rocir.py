@@ -37,6 +37,11 @@ def _get_location(loc: Optional[Location] = None) -> Location:
 
 def _unwrap_value(v):
     """Unwrap ArithValue or other value wrappers to get underlying MLIR Value."""
+    if isinstance(v, int):
+        from mlir.dialects import arith
+        from mlir.ir import IndexType, IntegerAttr
+        op = arith.ConstantOp(IndexType.get(), IntegerAttr.get(IndexType.get(), v))
+        return _unwrap_value(op.result)
     if hasattr(v, 'value') and callable(getattr(type(v).value, 'fget', None)):
         # It's a property, call it
         return v.value

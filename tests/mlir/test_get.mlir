@@ -9,7 +9,7 @@ func.func @test_get() -> index {
   %shape = rocir.make_shape %c8, %c16, %c32 : (index, index, index) -> !rocir.shape<3>
   
   // Get element at index 1 (should return 16)
-  %elem = rocir.get %shape, %c1 : (!rocir.shape<3>, index) -> index
+  %elem = rocir.get %shape, %c1 : !rocir.shape<3>, index -> index
   
   return %elem : index
 }

@@ -10,11 +10,7 @@ sys.path.insert(0, '/mnt/raid0/felix/rocDSL/python')
 from mlir.ir import InsertionPoint
 from mlir.dialects import func
 
-try:
-    from rocdsl.dialects.ext import arith, cute
-except ImportError:
-    print("SKIPPED: CuTe dialect not available (not yet implemented)")
-    sys.exit(0)
+from rocdsl.dialects.ext import arith, rocir
 
 
 def test_logical_product(ctx):
@@ -22,11 +18,11 @@ def test_logical_product(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_logical_product")
         def test_product():
-            c16 = arith.constant(16, index=True)
-            c32 = arith.constant(32, index=True)
-            c4 = arith.constant(4, index=True)
-            c8 = arith.constant(8, index=True)
-            c1 = arith.constant(1, index=True)
+            c16 = 16
+            c32 = 32
+            c4 = 4
+            c8 = 8
+            c1 = 1
             
             # Base layout: 16x32
             base_shape = rocir.make_shape(c16, c32)
@@ -46,7 +42,7 @@ def test_logical_product(ctx):
             tiles_n = c32 // c8
             total_tiles = tiles_m * tiles_n  # Pythonic multiplication!
             
-            return tiled
+            return [tiled]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -64,11 +60,11 @@ def test_zipped_product(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_zipped_product")
         def test_zipped():
-            c8 = arith.constant(8, index=True)
-            c16 = arith.constant(16, index=True)
-            c2 = arith.constant(2, index=True)
-            c4 = arith.constant(4, index=True)
-            c1 = arith.constant(1, index=True)
+            c8 = 8
+            c16 = 16
+            c2 = 2
+            c4 = 4
+            c1 = 1
             
             base_shape = rocir.make_shape(c8, c16)
             base_stride = rocir.make_stride(c1, c8)
@@ -84,7 +80,7 @@ def test_zipped_product(ctx):
             # Compute expected size: 8 * 16 = 128
             expected_size = c8 * c16
             
-            return zipped
+            return [zipped]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -101,11 +97,11 @@ def test_flat_product(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_flat_product")
         def test_flat():
-            c12 = arith.constant(12, index=True)
-            c24 = arith.constant(24, index=True)
-            c3 = arith.constant(3, index=True)
-            c6 = arith.constant(6, index=True)
-            c1 = arith.constant(1, index=True)
+            c12 = 12
+            c24 = 24
+            c3 = 3
+            c6 = 6
+            c1 = 1
             
             base_shape = rocir.make_shape(c12, c24)
             base_stride = rocir.make_stride(c1, c12)
@@ -117,7 +113,7 @@ def test_flat_product(ctx):
             
             flat = rocir.flat_product(base, tiler)
             
-            return flat
+            return [flat]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -132,10 +128,10 @@ def test_outer_product(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_outer_product")
         def test_outer():
-            c4 = arith.constant(4, index=True)
-            c8 = arith.constant(8, index=True)
-            c2 = arith.constant(2, index=True)
-            c1 = arith.constant(1, index=True)
+            c4 = 4
+            c8 = 8
+            c2 = 2
+            c1 = 1
             
             shape_a = rocir.make_shape(c4, c8)
             stride_a = rocir.make_stride(c1, c4)
@@ -147,7 +143,7 @@ def test_outer_product(ctx):
             
             outer = rocir.outer_product(layout_a, layout_b)
             
-            return outer
+            return [outer]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -161,10 +157,10 @@ def test_blocked_product(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_blocked_product")
         def test_blocked():
-            c64 = arith.constant(64, index=True)
-            c128 = arith.constant(128, index=True)
-            c16 = arith.constant(16, index=True)
-            c1 = arith.constant(1, index=True)
+            c64 = 64
+            c128 = 128
+            c16 = 16
+            c1 = 1
             
             base_shape = rocir.make_shape(c64, c128)
             base_stride = rocir.make_stride(c1, c64)
@@ -179,7 +175,7 @@ def test_blocked_product(ctx):
             # Compute block stride using operators
             block_size = c16 * c16  # Elements per block
             
-            return blocked
+            return [blocked]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -196,10 +192,10 @@ def test_raked_product(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_raked_product")
         def test_raked():
-            c32 = arith.constant(32, index=True)
-            c8 = arith.constant(8, index=True)
-            c4 = arith.constant(4, index=True)
-            c1 = arith.constant(1, index=True)
+            c32 = 32
+            c8 = 8
+            c4 = 4
+            c1 = 1
             
             base_shape = rocir.make_shape(c32, c32)
             base_stride = rocir.make_stride(c1, c32)
@@ -211,7 +207,7 @@ def test_raked_product(ctx):
             
             raked = rocir.raked_product(base, raker)
             
-            return raked
+            return [raked]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -225,11 +221,11 @@ def test_logical_divide(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_logical_divide")
         def test_divide():
-            c128 = arith.constant(128, index=True)
-            c256 = arith.constant(256, index=True)
-            c32 = arith.constant(32, index=True)
-            c64 = arith.constant(64, index=True)
-            c1 = arith.constant(1, index=True)
+            c128 = 128
+            c256 = 256
+            c32 = 32
+            c64 = 64
+            c1 = 1
             
             tensor_shape = rocir.make_shape(c128, c256)
             tensor_stride = rocir.make_stride(c1, c128)
@@ -246,7 +242,7 @@ def test_logical_divide(ctx):
             parts_n = c256 // c64
             total_parts = parts_m * parts_n
             
-            return divided
+            return [divided]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -264,9 +260,9 @@ def test_zipped_divide(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_zipped_divide")
         def test_zipped_div():
-            c64 = arith.constant(64, index=True)
-            c16 = arith.constant(16, index=True)
-            c1 = arith.constant(1, index=True)
+            c64 = 64
+            c16 = 16
+            c1 = 1
             
             tensor_shape = rocir.make_shape(c64, c64)
             tensor_stride = rocir.make_stride(c1, c64)
@@ -278,7 +274,7 @@ def test_zipped_divide(ctx):
             
             zipped = rocir.zipped_divide(tensor, part)
             
-            return zipped
+            return [zipped]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -292,9 +288,9 @@ def test_flat_divide(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_flat_divide")
         def test_flat_div():
-            c96 = arith.constant(96, index=True)
-            c12 = arith.constant(12, index=True)
-            c1 = arith.constant(1, index=True)
+            c96 = 96
+            c12 = 12
+            c1 = 1
             
             tensor_shape = rocir.make_shape(c96, c96)
             tensor_stride = rocir.make_stride(c1, c96)
@@ -306,7 +302,7 @@ def test_flat_divide(ctx):
             
             flat = rocir.flat_divide(tensor, part)
             
-            return flat
+            return [flat]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -320,11 +316,11 @@ def test_tiled_divide(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_tiled_divide")
         def test_tiled_div():
-            c256 = arith.constant(256, index=True)
-            c128 = arith.constant(128, index=True)
-            c32 = arith.constant(32, index=True)
-            c16 = arith.constant(16, index=True)
-            c1 = arith.constant(1, index=True)
+            c256 = 256
+            c128 = 128
+            c32 = 32
+            c16 = 16
+            c1 = 1
             
             tensor_shape = rocir.make_shape(c256, c128)
             tensor_stride = rocir.make_stride(c1, c256)
@@ -340,7 +336,7 @@ def test_tiled_divide(ctx):
             col_stride = c256 // c32  # Tiles per row
             row_stride = c128 // c16  # Tiles per column
             
-            return tiled
+            return [tiled]
     
     ctx.module.operation.verify()
     # Apply lowering

@@ -11,12 +11,16 @@ import rocdsl.dialects.ext.rocir as rocir
 from rocdsl.runtime.fp8_util import to_byte
 import numpy as np
 from mlir import ir
-from mlir.dialects import gpu, arith, vector, memref, builtin, scf
+from mlir.dialects import gpu, vector, memref, builtin
+from rocdsl.dialects.ext import arith, scf
+from mlir.dialects import arith as _arith_mlir
 import mlir.dialects.rocdl as rocdl
 from hip import hip
 import ctypes
 
 def unwrap(v):
+    if isinstance(v, int):
+        return arith.constant(v, index=True).value
     if hasattr(v, "value"): return v.value
     if hasattr(v, "_value"): return v._value
     return v
@@ -104,20 +108,19 @@ def construct_module():
                 arg_a = func_body.arguments[1]
                 arg_b = func_body.arguments[2]
                 
-                c0 = arith.ConstantOp(ir.IndexType.get(), 0).result
-                c1 = arith.ConstantOp(ir.IndexType.get(), 1).result
-                c_m = arith.ConstantOp(ir.IndexType.get(), 1024).result
-                c_n = arith.ConstantOp(ir.IndexType.get(), 1024).result
-                c_k = arith.ConstantOp(ir.IndexType.get(), 1280).result
-                c128 = arith.ConstantOp(ir.IndexType.get(), 128).result
-                c32 = arith.ConstantOp(ir.IndexType.get(), 32).result
-                c16 = arith.ConstantOp(ir.IndexType.get(), 16).result
-                import sys; print(f'DEBUG: c16: {c16}, type: {type(c16)}', file=sys.stderr, flush=True)
-                c8 = arith.ConstantOp(ir.IndexType.get(), 8).result
-                c4 = arith.ConstantOp(ir.IndexType.get(), 4).result
-                c2 = arith.ConstantOp(ir.IndexType.get(), 2).result
-                c64 = arith.ConstantOp(ir.IndexType.get(), 64).result
-                c0_i32 = arith.ConstantOp(ir.IntegerType.get_signless(32), 0).result
+                c0 = 0
+                c1 = 1
+                c_m = 1024
+                c_n = 1024
+                c_k = 1280
+                c128 = 128
+                c32 = 32
+                c16 = 16
+                c8 = 8
+                c4 = 4
+                c2 = 2
+                c64 = 64
+                c0_i32 = arith.i32(0)
                 identity_map = ir.AffineMap.get_identity(1)
                 
                 # Define Layouts using Rocir
@@ -143,7 +146,6 @@ def construct_module():
                 layout_lds = rocir.make_layout(shape_lds, stride_lds)
 
                 tx = gpu.ThreadIdOp(gpu.Dimension.x).result
-                import sys; print(f'DEBUG: tx: {tx}, type: {type(tx)}', file=sys.stderr, flush=True)
                 bx = gpu.BlockIdOp(gpu.Dimension.x).result
                 by = gpu.BlockIdOp(gpu.Dimension.y).result
                 
@@ -153,7 +155,7 @@ def construct_module():
                 # Accumulator Init
                 vec4_f32 = ir.VectorType.get([4], f32)
                 zero_attr = ir.DenseElementsAttr.get_splat(vec4_f32, ir.FloatAttr.get(f32, 0.0))
-                acc_init = arith.ConstantOp(vec4_f32, zero_attr).result
+                acc_init = _arith_mlir.ConstantOp(vec4_f32, zero_attr).result
                 
                 # Global Load Indices
                 tx_16 = tx * c16
@@ -178,7 +180,7 @@ def construct_module():
                 lds_write_idx = tx_16
                 
                 vec16_f8 = ir.VectorType.get([16], f8)
-                pad_f8 = arith.ConstantOp(f8, ir.FloatAttr.get(f8, 0.0)).result
+                pad_f8 = _arith_mlir.ConstantOp(f8, ir.FloatAttr.get(f8, 0.0)).result
                 
                 # Pre-calculate LDS read indices
                 wave_id = tx // c64
@@ -201,7 +203,7 @@ def construct_module():
                 row_b_lds = row_b_lds_base + lane_mod_16
                 
                 # Main Loop K
-                loop = scf.ForOp(unwrap(c0), unwrap(c_k), unwrap(c128), iter_args=[unwrap(acc_init)])
+                loop = scf.ForOp(c0, c_k, c128, iter_args=[unwrap(acc_init)])
                 with ir.InsertionPoint(loop.body):
                     k = loop.induction_variable
                     current_acc = loop.inner_iter_args[0]
@@ -225,7 +227,7 @@ def construct_module():
                     gpu.BarrierOp()
                     
                     # Inner Loop
-                    inner_loop = scf.ForOp(unwrap(c0), unwrap(c128), unwrap(c32), iter_args=[unwrap(current_acc)])
+                    inner_loop = scf.ForOp(c0, c128, c32, iter_args=[unwrap(current_acc)])
                     with ir.InsertionPoint(inner_loop.body):
                         ki = inner_loop.induction_variable
                         curr_acc_inner = inner_loop.inner_iter_args[0]
@@ -248,8 +250,8 @@ def construct_module():
                         vec_a_load = vector.LoadOp(vec8_f8, lds_a, [unwrap(idx_a_mfma)]).result
                         vec_b_load = vector.LoadOp(vec8_f8, lds_b, [unwrap(idx_b_mfma)]).result
                         
-                        a_bytes = arith.BitcastOp(vec8_i8, vec_a_load).result
-                        b_bytes = arith.BitcastOp(vec8_i8, vec_b_load).result
+                        a_bytes = _arith_mlir.BitcastOp(vec8_i8, vec_a_load).result
+                        b_bytes = _arith_mlir.BitcastOp(vec8_i8, vec_b_load).result
                         
                         a_vec64 = vector.BitCastOp(vec1_i64, a_bytes).result
                         b_vec64 = vector.BitCastOp(vec1_i64, b_bytes).result
@@ -285,7 +287,7 @@ def construct_module():
                     val = vector.ExtractOp(final_acc, [], [i]).result
                     
                     # Row offset = (lane_div_16 * 4) + i
-                    c_i = arith.ConstantOp(ir.IndexType.get(), i).result
+                    c_i = arith.index(i)
                     row_offset_base = lane_div_16 * c4
                     row_offset = row_offset_base + c_i
                     

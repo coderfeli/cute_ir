@@ -177,8 +177,8 @@ def _comparison_op(
         else:
             pred_name = "O" + predicate.upper()  # OGT, OLT, OGE, OLE
         pred_attr = getattr(_arith.CmpFPredicate, pred_name)
-        lhs_val = lhs._value if isinstance(lhs, ArithValue) else lhs
-        rhs_val = rhs._value if isinstance(rhs, ArithValue) else rhs
+        lhs_val = _unwrap_value(lhs) if isinstance(lhs, ArithValue) else lhs
+        rhs_val = _unwrap_value(rhs) if isinstance(rhs, ArithValue) else rhs
         result = _arith.CmpFOp(pred_attr, lhs_val, rhs_val, loc=loc).result
     elif _is_integer_like_type(lhs._value.type if isinstance(lhs, ArithValue) else lhs.type):
         # Signed integer comparison
@@ -187,14 +187,13 @@ def _comparison_op(
         else:
             pred_name = "s" + predicate  # slt, sle, sgt, sge (lowercase)
         pred_attr = getattr(_arith.CmpIPredicate, pred_name)
-        lhs_val = lhs._value if isinstance(lhs, ArithValue) else lhs
-        rhs_val = rhs._value if isinstance(rhs, ArithValue) else rhs
+        lhs_val = _unwrap_value(lhs) if isinstance(lhs, ArithValue) else lhs
+        rhs_val = _unwrap_value(rhs) if isinstance(rhs, ArithValue) else rhs
         result = _arith.CmpIOp(pred_attr, lhs_val, rhs_val, loc=loc).result
     else:
         raise NotImplementedError(f"Comparison not supported for type: {lhs._value.type if isinstance(lhs, ArithValue) else lhs.type}")
     
     return ArithValue(result)
-
 class ArithValue:
     """Value wrapper with operator overloading for Pythonic arithmetic.
     

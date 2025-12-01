@@ -176,12 +176,33 @@ def yield_(
 
 # Re-export common scf operations
 from mlir.dialects.scf import (
-    ForOp,
     IfOp,
     WhileOp,
     YieldOp,
     ExecuteRegionOp,
 )
+
+class ForOp(_scf.ForOp):
+    """Wrapper around scf.ForOp that supports int arguments and ArithValue."""
+    def __init__(self, start, stop, step, iter_args=None, *, loc=None, ip=None):
+        # Convert ints to index constants
+        if isinstance(start, int):
+            start = constant(start, index=True)
+        if isinstance(stop, int):
+            stop = constant(stop, index=True)
+        if isinstance(step, int):
+            step = constant(step, index=True)
+            
+        # Unwrap ArithValues
+        if hasattr(start, "value"): start = start.value
+        if hasattr(stop, "value"): stop = stop.value
+        if hasattr(step, "value"): step = step.value
+        
+        # Unwrap iter_args
+        if iter_args:
+            iter_args = [arg.value if hasattr(arg, "value") else arg for arg in iter_args]
+            
+        super().__init__(start, stop, step, iter_args=iter_args, loc=loc, ip=ip)
 
 __all__ = [
     "range_",

@@ -10,11 +10,7 @@ sys.path.insert(0, '/mnt/raid0/felix/rocDSL/python')
 from mlir.ir import Context, Location, Module, InsertionPoint
 from mlir.dialects import func
 
-try:
-    from rocdsl.dialects.ext import arith, cute
-except ImportError:
-    print("SKIPPED: CuTe dialect not available (not yet implemented)")
-    sys.exit(0)
+from rocdsl.dialects.ext import arith, rocir
 
 
 def test_make_shape(ctx):
@@ -22,15 +18,15 @@ def test_make_shape(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_shape_rank2")
         def test_shape():
-            c8 = arith.constant(8, index=True)
-            c16 = arith.constant(16, index=True)
+            c8 = 8
+            c16 = 16
             
             # Create 2D shape
             shape = rocir.make_shape(c8, c16)
             
             # Verify rank
             rank = rocir.rank(shape)
-            return rank
+            return [rank.value]
     
     # Verify the module
     ctx.module.operation.verify()
@@ -50,9 +46,9 @@ def test_make_layout(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_layout_creation")
         def test_layout():
-            c8 = arith.constant(8, index=True)
-            c16 = arith.constant(16, index=True)
-            c1 = arith.constant(1, index=True)
+            c8 = 8
+            c16 = 16
+            c1 = 1
             
             # Create shape and stride
             shape = rocir.make_shape(c8, c16)
@@ -61,7 +57,7 @@ def test_make_layout(ctx):
             # Create layout (column-major 8x16)
             layout = rocir.make_layout(shape, stride)
             
-            return layout
+            return [layout]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -76,8 +72,8 @@ def test_size_operation(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_size")
         def test_size():
-            c4 = arith.constant(4, index=True)
-            c8 = arith.constant(8, index=True)
+            c4 = 4
+            c8 = 8
             
             # Create shape
             shape = rocir.make_shape(c4, c8)
@@ -88,7 +84,7 @@ def test_size_operation(ctx):
             # Could also verify: 4 * 8 = 32
             expected = c4 * c8  # Using * operator instead of MulIOp!
             
-            return total_size
+            return [total_size.value]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -103,9 +99,9 @@ def test_get_shape_stride(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_extract")
         def test_extract():
-            c8 = arith.constant(8, index=True)
-            c16 = arith.constant(16, index=True)
-            c1 = arith.constant(1, index=True)
+            c8 = 8
+            c16 = 16
+            c1 = 1
             
             shape = rocir.make_shape(c8, c16)
             stride = rocir.make_stride(c1, c8)
@@ -118,7 +114,7 @@ def test_get_shape_stride(ctx):
             # Compute size from extracted shape
             size_val = rocir.size(extracted_shape)
             
-            return size_val
+            return [size_val.value]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -132,9 +128,9 @@ def test_rank_operation(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_rank")
         def test_rank_func():
-            c2 = arith.constant(2, index=True)
-            c3 = arith.constant(3, index=True)
-            c4 = arith.constant(4, index=True)
+            c2 = 2
+            c3 = 3
+            c4 = 4
             
             # Create 3D shape
             shape = rocir.make_shape(c2, c3, c4)
@@ -142,7 +138,7 @@ def test_rank_operation(ctx):
             # Get rank (should be 3)
             rank_val = rocir.rank(shape)
             
-            return rank_val
+            return [rank_val.value]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -156,9 +152,9 @@ def test_cosize_operation(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_cosize")
         def test_cosize_func():
-            c8 = arith.constant(8, index=True)
-            c16 = arith.constant(16, index=True)
-            c1 = arith.constant(1, index=True)
+            c8 = 8
+            c16 = 16
+            c1 = 1
             
             shape = rocir.make_shape(c8, c16)
             stride = rocir.make_stride(c1, c8)
@@ -167,7 +163,7 @@ def test_cosize_operation(ctx):
             # Compute cosize
             cosize_val = rocir.cosize(layout)
             
-            return cosize_val
+            return [cosize_val.value]
     
     ctx.module.operation.verify()
     # Apply lowering
@@ -181,11 +177,11 @@ def test_composition(ctx):
     with InsertionPoint(ctx.module.body):
         @func.FuncOp.from_py_func(name="test_compose")
         def test_compose():
-            c8 = arith.constant(8, index=True)
-            c16 = arith.constant(16, index=True)
-            c4 = arith.constant(4, index=True)
-            c2 = arith.constant(2, index=True)
-            c1 = arith.constant(1, index=True)
+            c8 = 8
+            c16 = 16
+            c4 = 4
+            c2 = 2
+            c1 = 1
             
             # First layout
             shape_a = rocir.make_shape(c8, c16)
@@ -203,7 +199,7 @@ def test_composition(ctx):
             # Use Pythonic operator for verification
             total_elements = c8 * c16  # Instead of MulIOp(c8, c16)
             
-            return composed
+            return [composed]
     
     ctx.module.operation.verify()
     # Apply lowering

@@ -17,31 +17,28 @@ export PYTHONPATH=$PYTHONPATH:$SCRIPT_DIR/build/python_bindings
 export PYTHONPATH=$PYTHONPATH:$SCRIPT_DIR/python
 
 #=============================================================================
-# Part 1: MLIR IR Tests (Lowering Passes)
-#=============================================================================
-echo "========================================================================"
-echo "Part 1: MLIR IR Tests (Lowering & Transformations)"
-echo "========================================================================"
-echo ""
+MLIR_TEST_COUNT=0
+MLIR_PASS_COUNT=0
 
-echo "Test 1.1: Coordinate Lowering (Static)"
-$ROCIR_OPT $PASS tests/mlir/test_coord_lowering.mlir > /tmp/test_coord_static.out 2>&1
-if [ $? -eq 0 ]; then
-    echo "   ✅ PASS"
-else
-    echo "   ❌ FAIL"
-fi
-
-echo "Test 1.2: Coordinate Lowering (Dynamic)"
-$ROCIR_OPT $PASS tests/mlir/test_coord_lowering_dynamic.mlir > /tmp/test_coord_dynamic.out 2>&1
-if [ $? -eq 0 ]; then
-    echo "   ✅ PASS"
-else
-    echo "   ❌ FAIL"
-fi
+for test_file in tests/mlir/*.mlir; do
+    if [ -f "$test_file" ]; then
+        MLIR_TEST_COUNT=$((MLIR_TEST_COUNT + 1))
+        test_name=$(basename "$test_file" .mlir)
+        echo "Running: $test_name"
+        $ROCIR_OPT $PASS "$test_file" > /tmp/${test_name}.out 2>&1
+        if [ $? -eq 0 ]; then
+            echo "   ✅ PASS"
+            MLIR_PASS_COUNT=$((MLIR_PASS_COUNT + 1))
+        else
+            echo "   ❌ FAIL"
+            echo "      Log: /tmp/${test_name}.out"
+        fi
+    fi
+done
 
 echo ""
-
+echo "MLIR Tests: $MLIR_PASS_COUNT/$MLIR_TEST_COUNT passed"
+echo ""
 #=============================================================================
 # Part 2: Python IR Tests (MLIR IR generation via Python)
 #=============================================================================
@@ -165,7 +162,7 @@ echo "========================================================================"
 echo "Test Summary"
 echo "========================================================================"
 echo ""
-echo "MLIR IR Tests (Lowering):        ✓ Passed"
+echo "MLIR IR Tests (Lowering):        $MLIR_PASS_COUNT/$MLIR_TEST_COUNT passed"
 echo "Python IR Tests (Generation):    $IR_PASS_COUNT/$IR_TEST_COUNT passed"
 echo "Example Tests (ROCDL):           $EXAMPLE_PASS_COUNT/$EXAMPLE_TEST_COUNT passed"
 

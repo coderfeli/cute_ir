@@ -54,8 +54,8 @@ def demonstrate_rocir_layouts():
     ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
     with ctx.context:
         # Example 1: 1D contiguous vector layout
-        size_1d = arith.index(1024)._value
-        stride_1d = arith.index(1)._value
+        size_1d = 1024
+        stride_1d = 1
         
         shape_1d = rocir.make_shape(size_1d)
         stride_vec = rocir.make_stride(stride_1d)
@@ -67,9 +67,9 @@ def demonstrate_rocir_layouts():
         print("- Usage: Maps vector index i to memory offset i*1")
         
         # Example 2: 2D row-major matrix layout
-        m = arith.index(32)._value
-        n = arith.index(64)._value
-        one = arith.index(1)._value
+        m = 32
+        n = 64
+        one = 1
         
         shape_2d = rocir.make_shape(m, n)
         stride_row_major = rocir.make_stride(n, one)  # (64, 1)
@@ -90,8 +90,8 @@ def demonstrate_rocir_layouts():
         print("- Usage: A[i,j] maps to offset i*1 + j*32")
         
         # Layout composition: Tiling
-        tile_m = arith.index(16)._value
-        tile_n = arith.index(16)._value
+        tile_m = 16
+        tile_n = 16
         tile_shape = rocir.make_shape(tile_m, tile_n)
         
         print("\n Layout Composition (Tiling):")
@@ -131,10 +131,10 @@ def test_vector_add():
     @gpu.func(emit=True)
     def vecAdd(A: T.memref(SIZE, T.f32()), B: T.memref(SIZE, T.f32()), C: T.memref(SIZE, T.f32())):
         tid = (gpu.block_id("x") * gpu.block_dim("x") + gpu.thread_id("x"))._value
-        size_c = arith.index(SIZE)._value
+        size_c = SIZE
         
         # Create 1D layout for vector (contiguous stride)
-        one = arith.index(1)._value
+        one = 1
         vec_shape = rocir.make_shape(size_c)
         vec_stride = rocir.make_stride(one)
         vec_layout = rocir.make_layout(vec_shape, vec_stride)
@@ -225,9 +225,9 @@ def test_matrix_transpose():
         row = (by * arith.index(16) + ty)._value
         col = (bx * arith.index(16) + tx)._value
         
-        m_c = arith.index(M)._value
-        n_c = arith.index(N)._value
-        one = arith.index(1)._value
+        m_c = M
+        n_c = N
+        one = 1
         
         # Create row-major layout for matrix A (M x N)
         a_shape = rocir.make_shape(m_c, n_c)
@@ -327,10 +327,10 @@ def test_matmul():
         row = (by * arith.index(16) + ty)._value
         col = (bx * arith.index(16) + tx)._value
         
-        m_c = arith.index(M)._value
-        n_c = arith.index(N)._value
-        k_c = arith.index(K)._value
-        one = arith.index(1)._value
+        m_c = M
+        n_c = N
+        k_c = K
+        one = 1
         
         # Create row-major layouts for matrices A, B, C
         a_shape = rocir.make_shape(m_c, k_c)
@@ -357,7 +357,7 @@ def test_matmul():
             sum_val = arith.f32(0.0)
             k_idx = arith.index(0)._value
             
-            for_op = scf.ForOp(k_idx.value, k_c.value, one.value, [sum_val.value])
+            for_op = scf.ForOp(k_idx.value, arith.index(k_c).value, arith.index(one).value, [sum_val.value])
             with ir.InsertionPoint(for_op.body):
                 k = for_op.induction_variable
                 acc = for_op.inner_iter_args[0]
@@ -466,16 +466,16 @@ def test_matmul_shared_memory():
         tx = gpu.thread_id("x")
         ty = gpu.thread_id("y")
         
-        zero = arith.index(0)._value
-        one = arith.index(1)._value
-        tile_c = arith.index(TILE_SIZE)._value
-        k_c = arith.index(K)._value
+        zero = 0
+        one = 1
+        tile_c = TILE_SIZE
+        k_c = K
         zero_f = arith.f32(0.0)
         
         acc = zero_f
-        num_tiles = arith.index(K // TILE_SIZE)._value
+        num_tiles = K // TILE_SIZE
         
-        for_tiles = scf.ForOp(zero.value, num_tiles.value, one.value, [acc.value])
+        for_tiles = scf.ForOp(arith.index(zero).value, arith.index(num_tiles).value, arith.index(one).value, [acc.value])
         with ir.InsertionPoint(for_tiles.body):
             t = for_tiles.induction_variable
             acc_val = for_tiles.inner_iter_args[0]
@@ -491,7 +491,7 @@ def test_matmul_shared_memory():
             
             gpu.barrier()
             
-            for_k = scf.ForOp(zero.value, tile_c.value, one.value, [acc_val.value if hasattr(acc_val, "value") else acc_val])
+            for_k = scf.ForOp(arith.index(zero).value, arith.index(tile_c).value, arith.index(one).value, [acc_val.value if hasattr(acc_val, "value") else acc_val])
             with ir.InsertionPoint(for_k.body):
                 k_local = for_k.induction_variable
                 acc_k = for_k.inner_iter_args[0]

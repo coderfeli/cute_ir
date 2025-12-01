@@ -23,9 +23,9 @@ import mlir.extras.types as T
 
 # Simplified helpers for cleaner code
 class Const:
-    """Helper for creating constants with clean syntax"""
     @staticmethod
     def index(val):
+        return val
         return arith.constant(T.index(), val)
     
     @staticmethod

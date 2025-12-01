@@ -33,7 +33,7 @@ func.func @test_get_stride_then_get() {
   %extracted_stride = rocir.get_stride %layout : !rocir.layout<2> -> !rocir.stride<2>
   
   // CRITICAL TEST: Can we get element from extracted stride?
-  %stride0 = rocir.get %extracted_stride, %c0 : (!rocir.stride<2>, index) -> index
+  %stride0 = rocir.get %extracted_stride, %c0 : !rocir.stride<2>, index -> index
   
   return
 }
