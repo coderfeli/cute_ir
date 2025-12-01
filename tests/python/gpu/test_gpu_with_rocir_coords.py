@@ -8,39 +8,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../build/pytho
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../python'))
 
 from rocdsl.compiler.context import RAIIMLIRContextModule
-from rocdsl.compiler.pipeline import Pipeline, run_pipeline
-from rocdsl.compiler.rocir_opt_helper import apply_rocir_coord_lowering
 from rocdsl.dialects.ext import gpu, rocir
 from rocdsl.runtime.hip_util import hip_check, get_hip_arch
+from utils import compile_to_hsaco
 from mlir import ir
 from mlir.dialects import arith, memref, scf
 import mlir.extras.types as T
 from hip import hip
 import numpy as np
 import ctypes
-
-
-def compile_to_hsaco(mlir_module):
-    # Apply rocir coordinate lowering BEFORE the main pipeline
-    print("[1/2] Applying rocir-coord-lowering pass...")
-    lowered_module = apply_rocir_coord_lowering(mlir_module)
-    print("[2/2] Running main GPU compilation pipeline...")
-    
-    gpu_arch = get_hip_arch()
-    # Now run the main pipeline
-    final_module = run_pipeline(
-        lowered_module,
-        Pipeline()
-        .canonicalize()
-        .cse()
-        .rocdl_attach_target(chip=gpu_arch)
-        .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True, runtime="HIP"))
-        .gpu_to_llvm()
-        .lower_to_llvm()
-        .gpu_module_to_binary(format="bin")
-    )
-    from rocdsl.dialects.ext.gpu import get_compile_object_bytes
-    return get_compile_object_bytes(final_module)
 
 
 def test_matmul_with_rocir():
