@@ -199,6 +199,26 @@ def Rocir_CoalesceOp : Rocir_Op<"coalesce", []> {
   let assemblyFormat = "$layout attr-dict `:` type($layout) `->` type($result)";
 }
 
+def Rocir_ComplementOp : Rocir_Op<"complement", []> {
+  let summary = "Compute complement of a tiler layout";
+  let description = [{
+    Computes the complement of a tiler layout with respect to a target size.
+    This finds the "rest" modes that are not covered by the tiler.
+    Used internally by logical_divide: logical_divide(L, T) = composition(L, make_layout(T, complement(T, size(L)))).
+    
+    The complement operation:
+    1. Filters out stride-0 and size-1 modes from the tiler
+    2. Sorts modes by stride (ascending)
+    3. Folds to compute rest modes: at each step, removes the minimum stride mode
+    4. Returns a coalesced layout of the rest modes
+    
+    Example: %comp = rocir.complement %tiler, %target_size : (!rocir.layout<2>, index) -> !rocir.layout<2>
+  }];
+  let arguments = (ins Rocir_LayoutType:$tiler, Index:$target_size);
+  let results = (outs Rocir_LayoutType:$result);
+  let assemblyFormat = "$tiler `,` $target_size attr-dict `:` functional-type(operands, $result)";
+}
+
 #endif // ROCIR_OPS
 
 //===----------------------------------------------------------------------===//

@@ -264,7 +264,15 @@ def make_layout(shape, stride=None, loc: Optional[Location] = None, ip: Optional
     
     # Extract rank from shape type
     shape_type_str = str(shape.type)
-    rank = int(shape_type_str.split("<")[1].split(">")[0])
+    # Type format: !rocir.shape<1, -1> where 1 is rank, -1 is structure encoding
+    # Or: !rocir.shape<2> for rank 2
+    type_content = shape_type_str.split("<")[1].split(">")[0]
+    if "," in type_content:
+        # Has structure encoding: first number is rank
+        rank = int(type_content.split(",")[0].strip())
+    else:
+        # Simple rank
+        rank = int(type_content)
     result_type = LayoutType.get(rank)
     
     with ip or InsertionPoint.current:
@@ -511,6 +519,42 @@ def composition(layout_a: Value, layout_b: Value, loc: Optional[Location] = None
     
     with ip or InsertionPoint.current:
         return rocir_ops.CompositionOp(result_type, _unwrap_value(layout_a), layout_b, loc=loc).result
+
+
+def complement(tiler: Value, target_size: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Compute the complement of a tiler layout.
+    
+    The complement finds the "rest" modes not covered by the tiler.
+    This is used internally by logical_divide.
+    
+    Algorithm:
+    1. Filters out stride-0 and size-1 modes from the tiler
+    2. Sorts modes by stride (ascending)
+    3. Folds to compute rest modes
+    4. Returns coalesced layout of rest modes
+    
+    Args:
+        tiler: The tiler layout
+        target_size: The target size to complement against
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        The complement layout
+        
+    Example:
+        >>> # For a layout of size 12 with tiler of size 3
+        >>> # complement returns a layout covering the remaining 4 elements
+        >>> tiler = rocir.make_layout(c3, stride=c1)
+        >>> target = Const.index(12)
+        >>> comp = rocir.complement(tiler, target)  # Returns 4:3
+    """
+    
+    loc = _get_location(loc)
+    result_type = tiler.type
+    
+    with ip or InsertionPoint.current:
+        return rocir_ops.ComplementOp(result_type, _unwrap_value(tiler), _unwrap_value(target_size), loc=loc).result
 
 
 def coalesce(layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:

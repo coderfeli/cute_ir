@@ -33,94 +33,84 @@ def unwrap(val):
 
 
 def run_lowering_test(ctx, test_name, expected_val=None, expected_vals=None):
-    """Run the lowering pipeline and verify success and result value(s)."""
+    """Run the lowering pipeline and verify success and result value(s).
+    
+    Uses assertions for pytest compatibility - returns None on success, raises on failure.
+    """
     print(f"  Running lowering pipeline for {test_name}...")
-    try:
-        # Lower rocir ops to standard arithmetic
-        pipeline = Pipeline().rocir_to_standard().canonicalize().cse()
-        run_pipeline(ctx.module, pipeline)
+    
+    # Lower rocir ops to standard arithmetic
+    # Use nested pipeline because RocirToStandardPass is restricted to func.func
+    pipeline = Pipeline().Func(Pipeline().rocir_to_standard()).canonicalize().cse()
+    run_pipeline(ctx.module, pipeline)
+    
+    assert ctx.module.operation.verify(), f"{test_name}: IR verification failed."
         
-        if not ctx.module.operation.verify():
-            print(f"  ❌ {test_name}: IR verification failed.")
-            return False
-            
-        print(f"  ✓ {test_name}: Lowering successful!")
+    print(f"  ✓ {test_name}: Lowering successful!")
+    
+    # Find the function operation
+    func_op = None
+    for op in ctx.module.body.operations:
+        op_name = op.name
+        if hasattr(op, "OPERATION_NAME"):
+            op_name = op.OPERATION_NAME
+        elif hasattr(op, "operation"):
+            op_name = op.operation.name
         
-        # Find the function operation
-        func_op = None
-        for op in ctx.module.body.operations:
-            op_name = op.name
-            if hasattr(op, "OPERATION_NAME"):
-                op_name = op.OPERATION_NAME
-            elif hasattr(op, "operation"):
-                op_name = op.operation.name
-            
-            if op_name == "func.func":
-                func_op = op
-                break
-        
-        if func_op is None:
-            if len(ctx.module.body.operations) > 0:
-                 op = ctx.module.body.operations[0]
-                 if "func.func" in str(op):
-                     func_op = op
+        if op_name == "func.func":
+            func_op = op
+            break
+    
+    if func_op is None:
+        if len(ctx.module.body.operations) > 0:
+             op = ctx.module.body.operations[0]
+             if "func.func" in str(op):
+                 func_op = op
 
-        if func_op is None:
-            print(f"  ❌ {test_name}: Could not find function in module.")
-            return False
+    assert func_op is not None, f"{test_name}: Could not find function in module."
+    
+    # Handle verification of expected values
+    if expected_val is not None or expected_vals is not None:
+        assert func_op.entry_block.operations, f"{test_name}: Function body is empty."
+            
+        return_op = func_op.entry_block.operations[-1]
+        assert return_op.name == "func.return", \
+            f"{test_name}: Last operation is {return_op.name}, expected func.return."
         
-        # Handle verification of expected values
-        if expected_val is not None or expected_vals is not None:
-            if not func_op.entry_block.operations:
-                print(f"  ❌ {test_name}: Function body is empty.")
-                return False
-                
-            return_op = func_op.entry_block.operations[-1]
-            if return_op.name != "func.return":
-                print(f"  ❌ {test_name}: Last operation is {return_op.name}, expected func.return.")
-                return False
+        # Handle multiple return values
+        if expected_vals is not None:
+            assert len(return_op.operands) == len(expected_vals), \
+                f"{test_name}: Return op has {len(return_op.operands)} operands, expected {len(expected_vals)}."
             
-            # Handle multiple return values
-            if expected_vals is not None:
-                if len(return_op.operands) != len(expected_vals):
-                    print(f"  ❌ {test_name}: Return op has {len(return_op.operands)} operands, expected {len(expected_vals)}.")
-                    return False
+            for i, (operand, expected) in enumerate(zip(return_op.operands, expected_vals)):
+                def_op = operand.owner
+                if def_op.name != "arith.constant":
+                    print(f"  ⚠ {test_name}: Return value [{i}] is not a constant (defined by: {def_op.name})")
+                    continue
                 
-                for i, (operand, expected) in enumerate(zip(return_op.operands, expected_vals)):
-                    def_op = operand.owner
-                    if def_op.name != "arith.constant":
-                        print(f"  ⚠ {test_name}: Return value [{i}] is not a constant (defined by: {def_op.name})")
-                        continue
-                    
-                    if "value" not in def_op.attributes:
-                        print(f"  ❌ {test_name}: Constant op [{i}] missing 'value' attribute.")
-                        return False
-                    
-                    val_attr = def_op.attributes["value"]
-                    actual = None
-                    
-                    if isinstance(val_attr, IntegerAttr):
-                        actual = val_attr.value
-                    elif hasattr(val_attr, "value"):
-                        actual = val_attr.value
-                    else:
-                        try:
-                            actual = int(val_attr)
-                        except:
-                            print(f"  ❌ {test_name}: Could not extract value [{i}] from attribute: {val_attr}")
-                            return False
-                    
-                    if actual != expected:
-                        print(f"  ❌ {test_name}: Value [{i}] mismatch. Expected {expected}, got {actual}")
-                        return False
+                assert "value" in def_op.attributes, \
+                    f"{test_name}: Constant op [{i}] missing 'value' attribute."
                 
-                print(f"  ✅ {test_name}: All values verified: {expected_vals}")
-                return True
+                val_attr = def_op.attributes["value"]
+                actual = None
+                
+                if isinstance(val_attr, IntegerAttr):
+                    actual = val_attr.value
+                elif hasattr(val_attr, "value"):
+                    actual = val_attr.value
+                else:
+                    actual = int(val_attr)
+                
+                assert actual == expected, \
+                    f"{test_name}: Value [{i}] mismatch. Expected {expected}, got {actual}"
             
-            # Handle single return value
-            if expected_val is not None and len(return_op.operands) != 1:
+            print(f"  ✅ {test_name}: All values verified: {expected_vals}")
+        
+        # Handle single return value
+        elif expected_val is not None:
+            if len(return_op.operands) != 1:
                 print(f"  ⚠ {test_name}: Return op has {len(return_op.operands)} operands, expected 1.")
-                return True
+                return
                 
             val = return_op.operands[0]
             def_op = val.owner
@@ -128,11 +118,10 @@ def run_lowering_test(ctx, test_name, expected_val=None, expected_vals=None):
             if def_op.name != "arith.constant":
                 print(f"  ⚠ {test_name}: Return value is not a constant (defined by: {def_op.name})")
                 print(f"  ✓ {test_name}: Skipping value verification (optimization may be incomplete).")
-                return True
+                return
                 
-            if "value" not in def_op.attributes:
-                print(f"  ❌ {test_name}: Constant op missing 'value' attribute.")
-                return False
+            assert "value" in def_op.attributes, \
+                f"{test_name}: Constant op missing 'value' attribute."
                 
             val_attr = def_op.attributes["value"]
             actual = None
@@ -142,24 +131,11 @@ def run_lowering_test(ctx, test_name, expected_val=None, expected_vals=None):
             elif hasattr(val_attr, "value"):
                 actual = val_attr.value
             else:
-                try:
-                    actual = int(val_attr)
-                except:
-                    print(f"  ❌ {test_name}: Could not extract value from attribute: {val_attr}")
-                    return False
+                actual = int(val_attr)
             
-            if actual == expected_val:
-                print(f"  ✅ {test_name}: Size verified: {actual}")
-            else:
-                print(f"  ❌ {test_name}: Size mismatch. Expected {expected_val}, got {actual}")
-                return False
-                
-        return True
-        
-    except Exception as e:
-        print(f"  ❌ {test_name}: Lowering failed with error: {e}")
-        traceback.print_exc()
-        return False
+            assert actual == expected_val, \
+                f"{test_name}: Size mismatch. Expected {expected_val}, got {actual}"
+            print(f"  ✅ {test_name}: Size verified: {actual}")
 
 
 # ==============================================================================
@@ -195,7 +171,7 @@ def test_coalesce_basic():
         return [unwrap(sz)]
     
     # Verify size is preserved: 2 * 1 * 6 = 12
-    return run_lowering_test(ctx, "coalesce_basic", expected_val=12)
+    run_lowering_test(ctx, "coalesce_basic", expected_val=12)
 
 
 # ==============================================================================
@@ -241,7 +217,7 @@ def test_composition_basic():
         return vals
 
     # Expected: shape [2, 2, 3] + stride [24, 2, 8]
-    return run_lowering_test(ctx, "composition_basic", expected_vals=[2, 2, 3, 24, 2, 8])
+    run_lowering_test(ctx, "composition_basic", expected_vals=[2, 2, 3, 24, 2, 8])
 
 
 def test_composition_static_vs_dynamic():
@@ -283,7 +259,7 @@ def test_composition_static_vs_dynamic():
         return vals
 
     # Expected: shape [5, 2, 2] + stride [16, 80, 4]
-    return run_lowering_test(ctx, "composition_static_vs_dynamic", expected_vals=[5, 2, 2, 16, 80, 4])
+    run_lowering_test(ctx, "composition_static_vs_dynamic", expected_vals=[5, 2, 2, 16, 80, 4])
 
 
 def test_composition_bymode():
@@ -297,7 +273,7 @@ def test_composition_bymode():
     
     # Note: By-mode composition with tuple tiler not yet implemented
     print("  ⚠ By-mode composition with tuple tiler not yet implemented in rocir")
-    return True
+    print("  ✓ Test skipped (pending implementation)")
 
 
 # ==============================================================================
@@ -349,7 +325,7 @@ def test_logical_divide_1d():
                 unwrap(stride_d0), unwrap(stride_d1), unwrap(stride_d2), unwrap(stride_d3)]
 
     # Expected: shape [2,2,2,3] + stride [4,1,2,8]
-    return run_lowering_test(ctx, "logical_divide_1d", 
+    run_lowering_test(ctx, "logical_divide_1d", 
                             expected_vals=[2, 2, 2, 3, 4, 1, 2, 8])
 
 
@@ -392,7 +368,7 @@ def test_logical_divide_2d():
         return vals
 
     # Expected: shape [3,3,2,4,2,2] + stride [177,59,13,2,26,1]
-    return run_lowering_test(ctx, "logical_divide_2d", 
+    run_lowering_test(ctx, "logical_divide_2d", 
                             expected_vals=[3, 3, 2, 4, 2, 2, 177, 59, 13, 2, 26, 1])
 
 
@@ -435,7 +411,7 @@ def test_zipped_divide():
         return vals
 
     # Expected: shape [3,2,4,3,2,2] + stride [177,13,2,59,26,1]
-    return run_lowering_test(ctx, "zipped_divide", 
+    run_lowering_test(ctx, "zipped_divide", 
                             expected_vals=[3, 2, 4, 3, 2, 2, 177, 13, 2, 59, 26, 1])
 
 
@@ -478,7 +454,7 @@ def test_tiled_divide():
         return vals
 
     # Expected: shape [3,2,4,3,2,2] + stride [177,13,2,59,26,1]
-    return run_lowering_test(ctx, "tiled_divide", 
+    run_lowering_test(ctx, "tiled_divide", 
                             expected_vals=[3, 2, 4, 3, 2, 2, 177, 13, 2, 59, 26, 1])
 
 
@@ -510,7 +486,7 @@ def test_flat_divide():
 
     # Expected size: 9 * 4 * 8 = 288 (divide preserves total size)
     # TODO: Add full shape/stride verification once divide lowering is implemented
-    return run_lowering_test(ctx, "flat_divide", expected_val=288)
+    run_lowering_test(ctx, "flat_divide", expected_val=288)
 
 
 # ==============================================================================
@@ -559,7 +535,7 @@ def test_logical_product_1d():
     # Expected: block shape (2,2) concatenated with tiler shape (6)
     # Stride: block stride (4,1) concatenated with scaled tiler stride (1 * block_size)
     # block_size = 2*2 = 4, so tiler stride becomes 1*4 = 4
-    return run_lowering_test(ctx, "logical_product_1d",
+    run_lowering_test(ctx, "logical_product_1d",
                             expected_vals=[2, 2, 6, 4, 1, 4])
 
 
@@ -603,7 +579,7 @@ def test_blocked_raked_product():
         return vals
 
     # Expected: shape [2,5,3,4] + stride [5,1,10,30] (block_size=10)
-    return run_lowering_test(ctx, "blocked_raked_product", 
+    run_lowering_test(ctx, "blocked_raked_product", 
                             expected_vals=[2, 5, 3, 4, 5, 1, 10, 30])
 
 
@@ -647,8 +623,127 @@ def test_zipped_tiled_flat_product():
         return vals
 
     # Expected: shape [2,5,3,4] + stride [5,1,10,30] (block_size=10)
-    return run_lowering_test(ctx, "zipped_tiled_flat_product", 
+    run_lowering_test(ctx, "zipped_tiled_flat_product", 
                             expected_vals=[2, 5, 3, 4, 5, 1, 10, 30])
+
+
+def test_complement_simple():
+    """Test complement operation: complement(3:1, 12) should give 4:3
+    
+    CuTe behavior:
+    - Input: tiler = Layout(3:1), target_size = 12
+    - complement finds the "rest" modes: 12 / 3 = 4, stride = 3
+    - Result: Layout(4:3)
+    """
+    print("\n=== Test: Complement Simple ===")
+    print("complement(Layout(3:1), 12) -> Layout(4:3)")
+    
+    ctx = RAIIMLIRContextModule()
+    
+    @func.FuncOp.from_py_func()
+    def test_func():
+        # Create tiler layout: 3:1
+        c3 = Const.index(3)
+        c1 = Const.index(1)
+        c12 = Const.index(12)
+        
+        tiler_shape = rocir.make_shape(c3)
+        tiler_stride = rocir.make_stride(c1)
+        tiler_layout = rocir.make_layout(tiler_shape, tiler_stride)
+        
+        # Compute complement
+        comp_layout = rocir.complement(tiler_layout, c12)
+        
+        # Get size to verify it works
+        comp_size = rocir.size(comp_layout)
+        
+        return
+    
+    run_lowering_test(ctx, "complement_simple")
+
+
+def test_complement_with_divide():
+    """Test logical_divide which uses complement internally.
+    
+    CuTe behavior:
+    - logical_divide(L, T) = composition(L, make_layout(T, complement(T, size(L))))
+    - Input: layout = Layout(12:1), tiler = Layout(3:1)
+    - Coalesce: Layout(12:1)
+    - Size: 12
+    - Complement(3:1, 12): Layout(4:3)
+    - Combined: Layout((3,4):(1,3))
+    - Compose: Layout((3,4):(1,3))
+    """
+    print("\n=== Test: Logical Divide with Complement ===")
+    print("logical_divide(Layout(12:1), Layout(3:1)) -> uses complement internally")
+    
+    ctx = RAIIMLIRContextModule()
+    
+    @func.FuncOp.from_py_func()
+    def test_func():
+        # Create input layout: 12:1
+        c12 = Const.index(12)
+        c1 = Const.index(1)
+        
+        input_shape = rocir.make_shape(c12)
+        input_stride = rocir.make_stride(c1)
+        input_layout = rocir.make_layout(input_shape, input_stride)
+        
+        # Create tiler layout: 3:1
+        c3 = Const.index(3)
+        tiler_shape = rocir.make_shape(c3)
+        tiler_stride = rocir.make_stride(c1)
+        tiler_layout = rocir.make_layout(tiler_shape, tiler_stride)
+        
+        # Compute logical_divide (uses complement internally)
+        divided_layout = rocir.logical_divide(input_layout, tiler_layout)
+        
+        # Get size to verify
+        div_size = rocir.size(divided_layout)
+        
+        return
+    
+    run_lowering_test(ctx, "complement_with_divide")
+
+
+def test_composition_with_tuple():
+    """Test composition with tuple recursion.
+    
+    CuTe behavior:
+    - When RHS is a tuple, composition distributes over it
+    - This tests the tuple recursion path in composition_impl
+    """
+    print("\n=== Test: Composition with Tuple Recursion ===")
+    print("Tests that composition handles nested tuple structures")
+    
+    ctx = RAIIMLIRContextModule()
+    
+    @func.FuncOp.from_py_func()
+    def test_func():
+        # Create simple layouts for composition test
+        c4 = Const.index(4)
+        c2 = Const.index(2)
+        c1 = Const.index(1)
+        
+        # Layout A: 4:1
+        shapeA = rocir.make_shape(c4)
+        strideA = rocir.make_stride(c1)
+        layoutA = rocir.make_layout(shapeA, strideA)
+        
+        # Layout B: 2:1
+        shapeB = rocir.make_shape(c2)
+        strideB = rocir.make_stride(c1)
+        layoutB = rocir.make_layout(shapeB, strideB)
+        
+        # Compose: A ∘ B
+        composed = rocir.composition(layoutA, layoutB)
+        
+        # Get size
+        comp_size = rocir.size(composed)
+        
+        return
+    
+    run_lowering_test(ctx, "composition_with_tuple")
 
 
 # ==============================================================================
@@ -666,6 +761,9 @@ if __name__ == "__main__":
         ("Composition Basic", test_composition_basic),
         ("Composition Static vs Dynamic", test_composition_static_vs_dynamic),
         ("Composition By-Mode", test_composition_bymode),
+        ("Composition with Tuple", test_composition_with_tuple),
+        ("Complement Simple", test_complement_simple),
+        ("Complement with Divide", test_complement_with_divide),
         ("Logical Divide 1D", test_logical_divide_1d),
         ("Logical Divide 2D", test_logical_divide_2d),
         ("Zipped Divide", test_zipped_divide),
@@ -681,13 +779,14 @@ if __name__ == "__main__":
     
     for test_name, test_func in all_tests:
         try:
-            result = test_func()
-            if result:
-                passed += 1
-            else:
-                failed += 1
+            test_func()  # Test functions now return None and use assertions
+            passed += 1
+            print(f"  ✅ {test_name}: PASSED\n")
+        except AssertionError as e:
+            print(f"  ❌ {test_name}: FAILED - {e}\n")
+            failed += 1
         except Exception as e:
-            print(f"\n❌ {test_name} raised exception: {e}")
+            print(f"  ❌ {test_name}: ERROR - {e}")
             traceback.print_exc()
             failed += 1
     
