@@ -2,7 +2,6 @@
 set -ex
 
 # Set up environment
-export MLIR_PATH=${MLIR_PATH:-/home/yanronli/llvm-project/buildmlir}
 export PYTHONPATH=$MLIR_PATH/tools/mlir/python_packages/mlir_core:$PYTHONPATH
 
 # Install Python requirements

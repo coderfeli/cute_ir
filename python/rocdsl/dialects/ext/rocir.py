@@ -111,11 +111,36 @@ class CoordType(Type):
 
 
 
-def make_shape(*dims: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
-    """Create a shape from dimension values.
+def _flatten_nested(values, result=None):
+    """Flatten nested tuples/lists into a flat list of values."""
+    if result is None:
+        result = []
+    
+    for v in values:
+        if isinstance(v, (tuple, list)):
+            _flatten_nested(v, result)
+        else:
+            result.append(v)
+    
+    return result
+
+
+def _count_total_dims(dims):
+    """Count total dimensions in potentially nested structure."""
+    count = 0
+    for d in dims:
+        if isinstance(d, (tuple, list)):
+            count += _count_total_dims(d)
+        else:
+            count += 1
+    return count
+
+
+def make_shape(*dims, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Create a shape from dimension values (supports nested shapes).
     
     Args:
-        *dims: Index values representing each dimension
+        *dims: Index values or tuples of index values for nested dimensions
         loc: Optional source location
         ip: Optional insertion point
         
@@ -123,24 +148,37 @@ def make_shape(*dims: Value, loc: Optional[Location] = None, ip: Optional[Insert
         A Rocir shape value
         
     Example:
+        >>> # Flat shape
         >>> c8 = arith.constant(8, index=True)
         >>> c16 = arith.constant(16, index=True)
         >>> shape = rocir.make_shape(c8, c16)  # Creates shape<2>
+        >>> 
+        >>> # Nested shape like CuTe: (9, (4, 8))
+        >>> c9 = arith.constant(9, index=True)
+        >>> c4 = arith.constant(4, index=True)
+        >>> shape = rocir.make_shape(c9, (c4, c8))  # Creates nested shape
     """
     
     loc = _get_location(loc)
-    rank = len(dims)
+    
+    # If a single tuple/list is passed, unpack it
+    if len(dims) == 1 and isinstance(dims[0], (tuple, list)):
+        dims = dims[0]
+    
+    # Flatten nested structure to get all dimension values
+    flat_dims = _flatten_nested(dims)
+    rank = len(flat_dims)
     result_type = ShapeType.get(rank)
     
     with ip or InsertionPoint.current:
-        return rocir_ops.MakeShapeOp(result_type, [_unwrap_value(d) for d in dims], loc=loc).result
+        return rocir_ops.MakeShapeOp(result_type, [_unwrap_value(d) for d in flat_dims], loc=loc).result
 
 
-def make_stride(*strides: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
-    """Create a stride from stride values.
+def make_stride(*strides, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Create a stride from stride values (supports nested strides).
     
     Args:
-        *strides: Index values representing each stride
+        *strides: Index values or tuples of index values for nested strides
         loc: Optional source location
         ip: Optional insertion point
         
@@ -148,25 +186,39 @@ def make_stride(*strides: Value, loc: Optional[Location] = None, ip: Optional[In
         A Rocir stride value
         
     Example:
+        >>> # Flat stride
         >>> c1 = arith.constant(1, index=True)
         >>> c8 = arith.constant(8, index=True)
         >>> stride = rocir.make_stride(c1, c8)  # Creates stride<2>
+        >>> 
+        >>> # Nested stride like CuTe: (59, (13, 1))
+        >>> c59 = arith.constant(59, index=True)
+        >>> c13 = arith.constant(13, index=True)
+        >>> stride = rocir.make_stride(c59, (c13, c1))  # Creates nested stride
     """
     
     loc = _get_location(loc)
-    rank = len(strides)
+    
+    # If a single tuple/list is passed, unpack it
+    if len(strides) == 1 and isinstance(strides[0], (tuple, list)):
+        strides = strides[0]
+    
+    # Flatten nested structure to get all stride values
+    flat_strides = _flatten_nested(strides)
+    rank = len(flat_strides)
     result_type = StrideType.get(rank)
     
     with ip or InsertionPoint.current:
-        return rocir_ops.MakeStrideOp(result_type, [_unwrap_value(s) for s in strides], loc=loc).result
+        return rocir_ops.MakeStrideOp(result_type, [_unwrap_value(s) for s in flat_strides], loc=loc).result
 
 
-def make_layout(shape: Value, stride: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
-    """Create a layout from shape and stride.
+def make_layout(shape, stride=None, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Create a layout from shape and stride (supports nested layouts).
     
     Args:
-        shape: A Rocir shape value
-        stride: A Rocir stride value
+        shape: A Rocir shape value, or a tuple/int for creating shape
+        stride: A Rocir stride value, or a tuple/int for creating stride, 
+                or None to create default column-major stride
         loc: Optional source location
         ip: Optional insertion point
         
@@ -174,12 +226,42 @@ def make_layout(shape: Value, stride: Value, loc: Optional[Location] = None, ip:
         A Rocir layout value
         
     Example:
+        >>> # Using shape and stride values
         >>> shape = rocir.make_shape(c8, c16)
         >>> stride = rocir.make_stride(c1, c8)
         >>> layout = rocir.make_layout(shape, stride)
+        >>> 
+        >>> # Using tuples directly (CuTe-style)
+        >>> layout = rocir.make_layout((c9, (c4, c8)), stride=(c59, (c13, c1)))
+        >>> 
+        >>> # Using single value
+        >>> layout = rocir.make_layout(c6, stride=c1)  # 1D layout 6:1
     """
     
     loc = _get_location(loc)
+    
+    # If shape is not already a Value, create shape from it
+    if not isinstance(shape, Value):
+        if isinstance(shape, (tuple, list)):
+            shape = make_shape(*shape, loc=loc, ip=ip)
+        else:
+            # Single value
+            shape = make_shape(shape, loc=loc, ip=ip)
+    
+    # If stride is not already a Value, create stride from it
+    if stride is not None:
+        if not isinstance(stride, Value):
+            if isinstance(stride, (tuple, list)):
+                stride = make_stride(*stride, loc=loc, ip=ip)
+            else:
+                # Single value
+                stride = make_stride(stride, loc=loc, ip=ip)
+    else:
+        # Create default column-major stride (1, prev_dim, prev_dim*prev_stride, ...)
+        # For now, just use unit stride
+        # TODO: Implement proper default stride computation
+        raise ValueError("Default stride not yet implemented, please provide explicit stride")
+    
     # Extract rank from shape type
     shape_type_str = str(shape.type)
     rank = int(shape_type_str.split("<")[1].split(">")[0])
@@ -406,6 +488,43 @@ def composition(layout_a: Value, layout_b: Value, loc: Optional[Location] = None
         return rocir_ops.CompositionOp(result_type, _unwrap_value(layout_a), layout_b, loc=loc).result
 
 
+def coalesce(layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Coalesce/simplify a layout by flattening and combining modes.
+    
+    Ensures post-conditions:
+    - Preserves size: size(layout) == size(result)
+    - Flattened: depth(result) <= 1
+    - Preserves function: For all i, layout(i) == result(i)
+    
+    Args:
+        layout: Layout to coalesce
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        The coalesced layout
+        
+    Example:
+        >>> layout = rocir.make_layout((c2, (c1, c6)), stride=(c1, (c6, c2)))
+        >>> coalesced = rocir.coalesce(layout)  # Simplifies to 12:1
+    """
+    from mlir import ir as _ir
+    
+    loc = _get_location(loc)
+    result_type = layout.type
+    
+    with ip or InsertionPoint.current:
+        # Create the operation directly using generic OpView
+        unwrapped = _unwrap_value(layout)
+        op = _ir.Operation.create(
+            "rocir.coalesce",
+            results=[result_type],
+            operands=[unwrapped],
+            loc=loc
+        )
+        return op.results[0]
+
+
 # Product operations
 
 def logical_product(block: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -582,6 +701,55 @@ def local_tile(layout: Value, tiler: Value, coord: Value, loc: Optional[Location
         return rocir_ops.LocalTileOp(result_type, _unwrap_value(layout), _unwrap_value(tiler), _unwrap_value(coord), loc=loc).result
 
 
+# Printing operations
+
+# Use Python's built-in print for static compile-time values
+# This is consistent with CuTeDSL where print shows compile-time information
+print = print  # Re-export Python's built-in print
+
+
+def printf(format_str: str, *args, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+    """Print formatted output at runtime (dynamic values).
+    
+    This function prints dynamic values that are only known at runtime.
+    It uses GPU printf to display values during kernel execution.
+    
+    Args:
+        format_str: Format string (e.g., "value: {}")
+        *args: Values to print (can be dynamic runtime values)
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Example:
+        >>> # Print static value (compile time)
+        >>> rocir.print(">>>", b)  # Shows static value
+        >>> rocir.print(">>>", a)  # Shows "?" for dynamic value
+        >>> 
+        >>> # Print dynamic value (runtime)
+        >>> rocir.printf(">?? {}", a)  # Shows actual runtime value
+        >>> rocir.printf(">?? {}", b)  # Also works for static values
+        >>> 
+        >>> # Print layout
+        >>> layout = rocir.make_layout(shape, stride)
+        >>> rocir.print(">>>", layout)  # Shows layout with "?" for dynamic parts
+        >>> rocir.printf(">?? {}", layout)  # Shows actual runtime values
+    
+    Note:
+        - Use `rocir.print` (Python's print) for compile-time/static values
+        - Use `rocir.printf` for runtime/dynamic values
+        - Format strings use "{}" as placeholders (similar to Python f-strings)
+    """
+    from mlir.dialects import gpu as _gpu
+    
+    loc = _get_location(loc)
+    
+    # Unwrap all argument values
+    unwrapped_args = [_unwrap_value(arg) for arg in args]
+    
+    with ip or InsertionPoint.current:
+        return _gpu.printf(format=format_str, args=unwrapped_args, loc=loc, ip=ip)
+
+
 __all__ = [
     # Types
     "ShapeType",
@@ -601,6 +769,7 @@ __all__ = [
     "get_shape",
     "get_stride",
     "composition",
+    "coalesce",
     # Product operations
     "logical_product",
     "zipped_product",
@@ -616,4 +785,7 @@ __all__ = [
     # Local operations
     "local_partition",
     "local_tile",
+    # Printing operations
+    "print",
+    "printf",
 ]

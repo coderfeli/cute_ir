@@ -11,7 +11,6 @@ echo ""
 
 # Set up Python path
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-export MLIR_PATH=${MLIR_PATH:-/home/yanronli/llvm-project/buildmlir}
 export PYTHONPATH=$MLIR_PATH/tools/mlir/python_packages/mlir_core:$PYTHONPATH
 export PYTHONPATH=$PYTHONPATH:$SCRIPT_DIR/build/python_bindings
 export PYTHONPATH=$PYTHONPATH:$SCRIPT_DIR/python

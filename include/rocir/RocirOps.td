@@ -11,57 +11,57 @@ class Rocir_Op<string mnemonic, list<Trait> traits = []> :
     Op<Rocir_Dialect, mnemonic, traits>;
 
 // Type constraints
-def Cute_IntType : Type<CPred<"llvm::isa<::mlir::rocir::IntType>($_self)">, "rocir.int">;
-def Cute_ShapeType : Type<CPred<"llvm::isa<::mlir::rocir::ShapeType>($_self)">, "rocir.shape">;
-def Cute_StrideType : Type<CPred<"llvm::isa<::mlir::rocir::StrideType>($_self)">, "rocir.stride">;
-def Cute_LayoutType : Type<CPred<"llvm::isa<::mlir::rocir::LayoutType>($_self)">, "rocir.layout">;
-def Cute_CoordType : Type<CPred<"llvm::isa<::mlir::rocir::CoordType>($_self)">, "rocir.coord">;
+def Rocir_IntType : Type<CPred<"llvm::isa<::mlir::rocir::IntType>($_self)">, "rocir.int">;
+def Rocir_ShapeType : Type<CPred<"llvm::isa<::mlir::rocir::ShapeType>($_self)">, "rocir.shape">;
+def Rocir_StrideType : Type<CPred<"llvm::isa<::mlir::rocir::StrideType>($_self)">, "rocir.stride">;
+def Rocir_LayoutType : Type<CPred<"llvm::isa<::mlir::rocir::LayoutType>($_self)">, "rocir.layout">;
+def Rocir_CoordType : Type<CPred<"llvm::isa<::mlir::rocir::CoordType>($_self)">, "rocir.coord">;
 
 //===----------------------------------------------------------------------===//
 // Construction Operations
 //===----------------------------------------------------------------------===//
 
-def Cute_MakeShapeOp : Rocir_Op<"make_shape", []> {
+def Rocir_MakeShapeOp : Rocir_Op<"make_shape", []> {
   let summary = "Create a CUTE shape from index values";
   let description = [{
     Creates a shape value from runtime index values.
     Example: cute.make_shape %i, %j : (index, index) -> !cute.shape<2>
   }];
   let arguments = (ins Variadic<Index>:$values);
-  let results = (outs Cute_ShapeType:$result);
+  let results = (outs Rocir_ShapeType:$result);
   let assemblyFormat = "$values attr-dict `:` functional-type($values, $result)";
 }
 
-def Cute_MakeStrideOp : Rocir_Op<"make_stride", []> {
+def Rocir_MakeStrideOp : Rocir_Op<"make_stride", []> {
   let summary = "Create a CUTE stride from index values";
   let description = [{
     Creates a stride value from runtime index values.
     Example: cute.make_stride %i, %j : (index, index) -> !cute.stride<2>
   }];
   let arguments = (ins Variadic<Index>:$values);
-  let results = (outs Cute_StrideType:$result);
+  let results = (outs Rocir_StrideType:$result);
   let assemblyFormat = "$values attr-dict `:` functional-type($values, $result)";
 }
 
-def Cute_MakeLayoutOp : Rocir_Op<"make_layout", []> {
+def Rocir_MakeLayoutOp : Rocir_Op<"make_layout", []> {
   let summary = "Create a CUTE layout from shape and stride";
   let description = [{
     Creates a layout value by combining a shape and stride.
     Example: cute.make_layout %shape, %stride : (!cute.shape<2>, !cute.stride<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_ShapeType:$shape, Cute_StrideType:$stride);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_ShapeType:$shape, Rocir_StrideType:$stride);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$shape `,` $stride attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_MakeCoordOp : Rocir_Op<"make_coord", []> {
+def Rocir_MakeCoordOp : Rocir_Op<"make_coord", []> {
   let summary = "Create a CUTE coordinate from index values";
   let description = [{
     Creates a coordinate value from runtime index values.
     Example: cute.make_coord %i, %j : (index, index) -> !cute.coord<2>
   }];
   let arguments = (ins Variadic<Index>:$values);
-  let results = (outs Cute_CoordType:$result);
+  let results = (outs Rocir_CoordType:$result);
   let assemblyFormat = "$values attr-dict `:` functional-type($values, $result)";
 }
 
@@ -69,51 +69,51 @@ def Cute_MakeCoordOp : Rocir_Op<"make_coord", []> {
 // Query Operations
 //===----------------------------------------------------------------------===//
 
-def Cute_SizeOp : Rocir_Op<"size", []> {
+def Rocir_SizeOp : Rocir_Op<"size", []> {
   let summary = "Get the total size of a shape or layout";
   let description = [{
     Computes the product of all dimensions in a shape or the size of a layout.
     For shape (M, N), returns M * N.
     Example: %s = cute.size %shape : !cute.shape<2> -> index
   }];
-  let arguments = (ins AnyTypeOf<[Cute_ShapeType, Cute_LayoutType]>:$input);
+  let arguments = (ins AnyTypeOf<[Rocir_ShapeType, Rocir_LayoutType]>:$input);
   let results = (outs Index:$result);
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 }
 
-def Cute_CosizeOp : Rocir_Op<"cosize", []> {
+def Rocir_CosizeOp : Rocir_Op<"cosize", []> {
   let summary = "Get the cosize of a layout";
   let description = [{
     Computes the cosize of a layout (codomain size).
     For a layout with shape and stride, returns the span of the mapping.
     Example: %cs = cute.cosize %layout : !cute.layout<2> -> index
   }];
-  let arguments = (ins Cute_LayoutType:$layout);
+  let arguments = (ins Rocir_LayoutType:$layout);
   let results = (outs Index:$result);
   let assemblyFormat = "$layout attr-dict `:` type($layout) `->` type($result)";
 }
 
-def Cute_GetOp : Rocir_Op<"get", []> {
+def Rocir_GetOp : Rocir_Op<"get", []> {
   let summary = "Extract element from shape/stride/coord at given index";
   let description = [{
     Extracts the value at a specific position from shape, stride, or coord.
     Example: %val = cute.get %shape, %idx : !cute.shape<3>, index -> index
   }];
   let arguments = (ins 
-    AnyTypeOf<[Cute_ShapeType, Cute_StrideType, Cute_CoordType]>:$input,
+    AnyTypeOf<[Rocir_ShapeType, Rocir_StrideType, Rocir_CoordType]>:$input,
     Index:$idx
   );
   let results = (outs Index:$result);
   let assemblyFormat = "$input `,` $idx attr-dict `:` type($input) `,` type($idx) `->` type($result)";
 }
 
-def Cute_RankOp : Rocir_Op<"rank", []> {
+def Rocir_RankOp : Rocir_Op<"rank", []> {
   let summary = "Get the rank (number of dimensions) of a type";
   let description = [{
     Returns the number of dimensions in a shape, stride, coord, or layout.
     Example: %r = cute.rank %shape : !cute.shape<3> -> index
   }];
-  let arguments = (ins AnyTypeOf<[Cute_ShapeType, Cute_StrideType, Cute_CoordType, Cute_LayoutType]>:$input);
+  let arguments = (ins AnyTypeOf<[Rocir_ShapeType, Rocir_StrideType, Rocir_CoordType, Rocir_LayoutType]>:$input);
   let results = (outs Index:$result);
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
 }
@@ -122,27 +122,27 @@ def Cute_RankOp : Rocir_Op<"rank", []> {
 // Coordinate Mapping Operations
 //===----------------------------------------------------------------------===//
 
-def Cute_Crd2IdxOp : Rocir_Op<"crd2idx", []> {
+def Rocir_Crd2IdxOp : Rocir_Op<"crd2idx", []> {
   let summary = "Convert coordinate to linear index using layout";
   let description = [{
     Converts a multi-dimensional coordinate to a linear index using a layout.
     Computes: sum(coord[i] * stride[i]) for all dimensions i.
     Example: %idx = cute.crd2idx %coord, %layout : (!cute.coord<2>, !cute.layout<2>) -> index
   }];
-  let arguments = (ins Cute_CoordType:$coord, Cute_LayoutType:$layout);
+  let arguments = (ins Rocir_CoordType:$coord, Rocir_LayoutType:$layout);
   let results = (outs Index:$result);
   let assemblyFormat = "$coord `,` $layout attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_Idx2CrdOp : Rocir_Op<"idx2crd", []> {
+def Rocir_Idx2CrdOp : Rocir_Op<"idx2crd", []> {
   let summary = "Convert linear index to coordinate using layout";
   let description = [{
     Converts a linear index to a multi-dimensional coordinate using a layout.
     This is the inverse of crd2idx.
     Example: %coord = cute.idx2crd %idx, %layout : (index, !cute.layout<2>) -> !cute.coord<2>
   }];
-  let arguments = (ins Index:$idx, Cute_LayoutType:$layout);
-  let results = (outs Cute_CoordType:$result);
+  let arguments = (ins Index:$idx, Rocir_LayoutType:$layout);
+  let results = (outs Rocir_CoordType:$result);
   let assemblyFormat = "$idx `,` $layout attr-dict `:` functional-type(operands, $result)";
 }
 
@@ -150,38 +150,53 @@ def Cute_Idx2CrdOp : Rocir_Op<"idx2crd", []> {
 // Layout Manipulation Operations
 //===----------------------------------------------------------------------===//
 
-def Cute_GetShapeOp : Rocir_Op<"get_shape", []> {
+def Rocir_GetShapeOp : Rocir_Op<"get_shape", []> {
   let summary = "Extract shape from layout";
   let description = [{
     Extracts the shape component from a layout.
     Example: %shape = cute.get_shape %layout : !cute.layout<2> -> !cute.shape<2>
   }];
-  let arguments = (ins Cute_LayoutType:$layout);
-  let results = (outs Cute_ShapeType:$result);
+  let arguments = (ins Rocir_LayoutType:$layout);
+  let results = (outs Rocir_ShapeType:$result);
   let assemblyFormat = "$layout attr-dict `:` type($layout) `->` type($result)";
 }
 
-def Cute_GetStrideOp : Rocir_Op<"get_stride", []> {
+def Rocir_GetStrideOp : Rocir_Op<"get_stride", []> {
   let summary = "Extract stride from layout";
   let description = [{
     Extracts the stride component from a layout.
     Example: %stride = cute.get_stride %layout : !cute.layout<2> -> !cute.stride<2>
   }];
-  let arguments = (ins Cute_LayoutType:$layout);
-  let results = (outs Cute_StrideType:$result);
+  let arguments = (ins Rocir_LayoutType:$layout);
+  let results = (outs Rocir_StrideType:$result);
   let assemblyFormat = "$layout attr-dict `:` type($layout) `->` type($result)";
 }
 
-def Cute_CompositionOp : Rocir_Op<"composition", []> {
+def Rocir_CompositionOp : Rocir_Op<"composition", []> {
   let summary = "Compose two layouts";
   let description = [{
     Computes the composition of two layouts: layoutA ∘ layoutB.
     The result maps indices through layoutB then through layoutA.
-    Example: %comp = cute.composition %layoutA, %layoutB : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
+    Example: %comp = rocir.composition %layoutA, %layoutB : (!rocir.layout<2>, !rocir.layout<2>) -> !rocir.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$layoutA, Cute_LayoutType:$layoutB);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$layoutA, Rocir_LayoutType:$layoutB);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$layoutA `,` $layoutB attr-dict `:` functional-type(operands, $result)";
+}
+
+def Rocir_CoalesceOp : Rocir_Op<"coalesce", []> {
+  let summary = "Coalesce/simplify a layout";
+  let description = [{
+    Coalesces a layout by flattening and combining modes when possible.
+    Ensures post-conditions:
+    - Preserves size: rocir.size(layout) == rocir.size(result)
+    - Flattened: depth(result) <= 1
+    - Preserves function: For all i, 0 <= i < rocir.size(layout), layout(i) == result(i)
+    Example: %coalesced = rocir.coalesce %layout : !rocir.layout<3> -> !rocir.layout<2>
+  }];
+  let arguments = (ins Rocir_LayoutType:$layout);
+  let results = (outs Rocir_LayoutType:$result);
+  let assemblyFormat = "$layout attr-dict `:` type($layout) `->` type($result)";
 }
 
 #endif // ROCIR_OPS
@@ -190,75 +205,75 @@ def Cute_CompositionOp : Rocir_Op<"composition", []> {
 // Layout Product Operations
 //===----------------------------------------------------------------------===//
 
-def Cute_LogicalProductOp : Rocir_Op<"logical_product", []> {
+def Rocir_LogicalProductOp : Rocir_Op<"logical_product", []> {
   let summary = "Compute logical product of layout with tiler";
   let description = [{
     Computes the logical product of a layout and a tiler layout.
     This applies the tiler to the layout in a mode-wise fashion.
     Example: %result = cute.logical_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_ZippedProductOp : Rocir_Op<"zipped_product", []> {
+def Rocir_ZippedProductOp : Rocir_Op<"zipped_product", []> {
   let summary = "Compute zipped product of layout with tiler";
   let description = [{
     Computes the zipped product of a layout and a tiler layout.
     This interleaves the modes of the input and tiler.
     Example: %result = cute.zipped_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_TiledProductOp : Rocir_Op<"tiled_product", []> {
+def Rocir_TiledProductOp : Rocir_Op<"tiled_product", []> {
   let summary = "Compute tiled product of layout with tiler";
   let description = [{
     Computes the tiled product of a layout and a tiler layout.
     This creates a hierarchical tiled layout.
     Example: %result = cute.tiled_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_FlatProductOp : Rocir_Op<"flat_product", []> {
+def Rocir_FlatProductOp : Rocir_Op<"flat_product", []> {
   let summary = "Compute flat product of layout with tiler";
   let description = [{
     Computes the flat product of a layout and a tiler layout.
     This produces a flattened layout from the product.
     Example: %result = cute.flat_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_RakedProductOp : Rocir_Op<"raked_product", []> {
+def Rocir_RakedProductOp : Rocir_Op<"raked_product", []> {
   let summary = "Compute raked product of layout with tiler";
   let description = [{
     Computes the raked product of a layout and a tiler layout.
     This creates a raked memory access pattern.
     Example: %result = cute.raked_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_BlockedProductOp : Rocir_Op<"blocked_product", []> {
+def Rocir_BlockedProductOp : Rocir_Op<"blocked_product", []> {
   let summary = "Compute blocked product of layout with tiler";
   let description = [{
     Computes the blocked product of a layout and a tiler layout.
     This creates a blocked memory access pattern.
     Example: %result = cute.blocked_product %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
@@ -267,51 +282,51 @@ def Cute_BlockedProductOp : Rocir_Op<"blocked_product", []> {
 // Layout Divide Operations
 //===----------------------------------------------------------------------===//
 
-def Cute_LogicalDivideOp : Rocir_Op<"logical_divide", []> {
+def Rocir_LogicalDivideOp : Rocir_Op<"logical_divide", []> {
   let summary = "Logically divide a layout by a tiler";
   let description = [{
     Divides a layout logically by a tiler, creating a partitioned view.
     This is commonly used for tiling tensor operations.
     Example: %result = cute.logical_divide %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_ZippedDivideOp : Rocir_Op<"zipped_divide", []> {
+def Rocir_ZippedDivideOp : Rocir_Op<"zipped_divide", []> {
   let summary = "Divide a layout by a tiler with zipped semantics";
   let description = [{
     Divides a layout by a tiler using zipped division semantics.
     This interleaves the division across modes.
     Example: %result = cute.zipped_divide %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_TiledDivideOp : Rocir_Op<"tiled_divide", []> {
+def Rocir_TiledDivideOp : Rocir_Op<"tiled_divide", []> {
   let summary = "Divide a layout by a tiler with tiled semantics";
   let description = [{
     Divides a layout by a tiler creating a hierarchical tiled division.
     This is the dual of tiled_product.
     Example: %result = cute.tiled_divide %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_FlatDivideOp : Rocir_Op<"flat_divide", []> {
+def Rocir_FlatDivideOp : Rocir_Op<"flat_divide", []> {
   let summary = "Divide a layout by a tiler with flat semantics";
   let description = [{
     Divides a layout by a tiler creating a flattened division.
     This produces a flat result from the division.
     Example: %result = cute.flat_divide %input, %tiler : (!cute.layout<2>, !cute.layout<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler attr-dict `:` functional-type(operands, $result)";
 }
 
@@ -320,7 +335,7 @@ def Cute_FlatDivideOp : Rocir_Op<"flat_divide", []> {
 // Local Partition and Tile Operations
 //===----------------------------------------------------------------------===//
 
-def Cute_LocalPartitionOp : Rocir_Op<"local_partition", []> {
+def Rocir_LocalPartitionOp : Rocir_Op<"local_partition", []> {
   let summary = "Partition a layout for a specific thread/block index";
   let description = [{
     Partitions a layout by a tiler for a specific thread or block index.
@@ -330,12 +345,12 @@ def Cute_LocalPartitionOp : Rocir_Op<"local_partition", []> {
     
     Example: %result = cute.local_partition %tensor, %tile, %index : (!cute.layout<2>, !cute.layout<2>, index) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_LayoutType:$tiler, Index:$index);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_LayoutType:$tiler, Index:$index);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler `,` $index attr-dict `:` functional-type(operands, $result)";
 }
 
-def Cute_LocalTileOp : Rocir_Op<"local_tile", []> {
+def Rocir_LocalTileOp : Rocir_Op<"local_tile", []> {
   let summary = "Extract a tile from a layout at specific coordinates";
   let description = [{
     Extracts a tile of a specific shape from a layout at given coordinates.
@@ -345,8 +360,8 @@ def Cute_LocalTileOp : Rocir_Op<"local_tile", []> {
     
     Example: %result = cute.local_tile %tensor, %tiler, %coord : (!cute.layout<2>, !cute.shape<2>, !cute.shape<2>) -> !cute.layout<2>
   }];
-  let arguments = (ins Cute_LayoutType:$input, Cute_ShapeType:$tiler, Cute_ShapeType:$coord);
-  let results = (outs Cute_LayoutType:$result);
+  let arguments = (ins Rocir_LayoutType:$input, Rocir_ShapeType:$tiler, Rocir_ShapeType:$coord);
+  let results = (outs Rocir_LayoutType:$result);
   let assemblyFormat = "$input `,` $tiler `,` $coord attr-dict `:` functional-type(operands, $result)";
 }
 

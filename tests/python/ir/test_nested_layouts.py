@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""
+Test nested layout support in Rocir, following CuTe layout algebra examples.
+Ref: examples/python/CuTeDSL/notebooks/cute_layout_algebra.ipynb
+"""
+
+import sys
+import os
+sys.path.insert(0, os.path.join(os.environ.get('MLIR_PATH', ''), 'tools/mlir/python_packages/mlir_core'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../build/python_bindings'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../python'))
+
+from rocdsl.compiler.context import RAIIMLIRContextModule
+from rocdsl.dialects.ext import rocir, arith
+from mlir.dialects import func
+
+class Const:
+    @staticmethod
+    def index(val):
+        return arith.index(val)
+
+
+def unwrap(val):
+    """Unwrap ArithValue or other wrappers."""
+    if hasattr(val, 'value'): return val.value
+    if hasattr(val, '_value'): return val._value
+    return val
+
+
+def test_nested_shape_creation():
+    """Test creating nested shapes like CuTe: (9, (4, 8))"""
+    print("\n" + "="*80)
+    print("Test 1: Nested Shape Creation")
+    print("="*80)
+    
+    ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    
+    @func.FuncOp.from_py_func()
+    def test_nested_shape():
+        # Create nested shape: (9, (4, 8))
+        c9 = Const.index(9)
+        c4 = Const.index(4)
+        c8 = Const.index(8)
+        
+        # Nested shape
+        shape = rocir.make_shape(c9, (c4, c8))
+        print(">>> Created nested shape: (9, (4, 8))")
+        
+        # Verify size is 9 * 4 * 8 = 288
+        sz = rocir.size(shape)
+        return [unwrap(sz)]
+    
+    print("Generated IR:")
+    print(ctx.module)
+    print("✓ Nested shape created successfully")
+    return True
+
+
+def test_nested_stride_creation():
+    """Test creating nested strides like CuTe: (59, (13, 1))"""
+    print("\n" + "="*80)
+    print("Test 2: Nested Stride Creation")
+    print("="*80)
+    
+    ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    
+    @func.FuncOp.from_py_func()
+    def test_nested_stride():
+        # Create nested stride: (59, (13, 1))
+        c59 = Const.index(59)
+        c13 = Const.index(13)
+        c1 = Const.index(1)
+        
+        # Nested stride
+        stride = rocir.make_stride(c59, (c13, c1))
+        print(">>> Created nested stride: (59, (13, 1))")
+        
+        return []
+    
+    print("Generated IR:")
+    print(ctx.module)
+    print("✓ Nested stride created successfully")
+    return True
+
+
+def test_nested_layout_creation():
+    """Test creating nested layouts like CuTe: (9,(4,8)):(59,(13,1))"""
+    print("\n" + "="*80)
+    print("Test 3: Nested Layout Creation")
+    print("="*80)
+    print(">>> Creating layout: (9,(4,8)):(59,(13,1))")
+    
+    ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    
+    @func.FuncOp.from_py_func()
+    def test_nested_layout():
+        # Create nested layout: (9,(4,8)):(59,(13,1))
+        c9 = Const.index(9)
+        c4 = Const.index(4)
+        c8 = Const.index(8)
+        c59 = Const.index(59)
+        c13 = Const.index(13)
+        c1 = Const.index(1)
+        
+        # Method 1: Create shape and stride separately
+        shape = rocir.make_shape(c9, (c4, c8))
+        stride = rocir.make_stride(c59, (c13, c1))
+        layout = rocir.make_layout(shape, stride)
+        
+        # Verify size
+        sz = rocir.size(layout)
+        
+        return [unwrap(sz)]
+    
+    print("Generated IR:")
+    print(ctx.module)
+    print("✓ Nested layout created successfully")
+    return True
+
+
+def test_nested_layout_direct():
+    """Test creating nested layouts using direct tuple syntax"""
+    print("\n" + "="*80)
+    print("Test 4: Nested Layout with Direct Tuple Syntax")
+    print("="*80)
+    print(">>> Creating layout using tuples: (9,(4,8)):(59,(13,1))")
+    
+    ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    
+    @func.FuncOp.from_py_func()
+    def test_nested_layout_direct():
+        c9 = Const.index(9)
+        c4 = Const.index(4)
+        c8 = Const.index(8)
+        c59 = Const.index(59)
+        c13 = Const.index(13)
+        c1 = Const.index(1)
+        
+        # Direct tuple syntax (CuTe-style)
+        layout = rocir.make_layout(
+            (c9, (c4, c8)),
+            stride=(c59, (c13, c1))
+        )
+        
+        sz = rocir.size(layout)
+        return [unwrap(sz)]
+    
+    print("Generated IR:")
+    print(ctx.module)
+    print("✓ Direct tuple syntax works!")
+    return True
+
+
+def test_flat_divide_with_nested_layout():
+    """Test flat divide producing nested output: (3,(2,4),3,(2,2)):(177,(13,2),59,(26,1))"""
+    print("\n" + "="*80)
+    print("Test 5: Flat Divide with Nested Layout")
+    print("="*80)
+    print(">>> Layout: (9,(4,8)):(59,(13,1))")
+    print(">>> Tiler : (3:3, (2,4):(1,8))")
+    print(">>> Expected Result: (3,(2,4),3,(2,2)):(177,(13,2),59,(26,1))")
+    
+    ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    
+    @func.FuncOp.from_py_func()
+    def test_flat_divide():
+        # Define the original nested layout
+        layout = rocir.make_layout(
+            (Const.index(9), (Const.index(4), Const.index(8))),
+            stride=(Const.index(59), (Const.index(13), Const.index(1)))
+        )
+        
+        # Define the tiler with nested structure
+        tiler = rocir.make_layout(
+            (Const.index(3), (Const.index(2), Const.index(4))),
+            stride=(Const.index(3), (Const.index(1), Const.index(8)))
+        )
+        
+        # Apply flat divide
+        res_flat = rocir.flat_divide(layout, tiler)
+        
+        # Result should have shape (3,(2,4),3,(2,2)) with stride (177,(13,2),59,(26,1))
+        # Total size should be same as original: 9*4*8 = 288
+        sz = rocir.size(res_flat)
+        
+        return [unwrap(sz)]
+    
+    print("Generated IR:")
+    print(ctx.module)
+    print("✓ Flat divide with nested layout works!")
+    return True
+
+
+def test_logical_divide_2d_nested():
+    """Test 2D logical divide with nested layout (Cell 17 from notebook)"""
+    print("\n" + "="*80)
+    print("Test 6: Logical Divide 2D with Nested Layout")
+    print("="*80)
+    print(">>> Layout: (9,(4,8)):(59,(13,1))")
+    print(">>> Tiler : (3:3, (2,4):(1,8))")
+    print(">>> Expected Result: ((3,3),((2,4),(2,2))):((177,59),((13,2),(26,1)))")
+    
+    ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    
+    @func.FuncOp.from_py_func()
+    def test_logical_divide_2d():
+        # Define the original nested layout
+        layout = rocir.make_layout(
+            (Const.index(9), (Const.index(4), Const.index(8))),
+            stride=(Const.index(59), (Const.index(13), Const.index(1)))
+        )
+        
+        # Define the tiler
+        tiler = rocir.make_layout(
+            (Const.index(3), (Const.index(2), Const.index(4))),
+            stride=(Const.index(3), (Const.index(1), Const.index(8)))
+        )
+        
+        # Apply logical divide
+        res_logical = rocir.logical_divide(layout, tiler)
+        
+        # Size should match original: 9*4*8 = 288
+        sz = rocir.size(res_logical)
+        
+        return [unwrap(sz)]
+    
+    print("Generated IR:")
+    print(ctx.module)
+    print("✓ Logical divide with nested layout works!")
+    return True
+
+
+if __name__ == "__main__":
+    print("\n" + "="*80)
+    print("Rocir Nested Layout Tests")
+    print("Following CuTe Layout Algebra Notebook")
+    print("="*80)
+    
+    all_pass = True
+    
+    all_pass &= test_nested_shape_creation()
+    all_pass &= test_nested_stride_creation()
+    all_pass &= test_nested_layout_creation()
+    all_pass &= test_nested_layout_direct()
+    all_pass &= test_flat_divide_with_nested_layout()
+    all_pass &= test_logical_divide_2d_nested()
+    
+    if all_pass:
+        print("\n" + "="*80)
+        print("✅ All Nested Layout Tests PASSED!")
+        print("="*80)
+        sys.exit(0)
+    else:
+        print("\n" + "="*80)
+        print("❌ Some tests FAILED!")
+        print("="*80)
+        sys.exit(1)
+

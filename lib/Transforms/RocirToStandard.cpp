@@ -50,8 +50,10 @@ struct SizeOpLowering : public RewritePattern {
     if (!defOp)
       return failure();
     
+    auto opName = defOp->getName().getStringRef();
+    
     // Handle make_shape
-    if (defOp->getName().getStringRef() == "rocir.make_shape") {
+    if (opName == "rocir.make_shape") {
       auto values = defOp->getOperands();
       if (values.empty()) {
         auto one = rewriter.create<arith::ConstantIndexOp>(loc, 1);
@@ -69,7 +71,7 @@ struct SizeOpLowering : public RewritePattern {
     }
     
     // Handle make_layout - get shape then compute size
-    if (defOp->getName().getStringRef() == "rocir.make_layout") {
+    if (opName == "rocir.make_layout") {
       auto shapeOp = defOp->getOperand(0).getDefiningOp();
       if (!shapeOp || shapeOp->getName().getStringRef() != "rocir.make_shape")
         return failure();
@@ -86,6 +88,23 @@ struct SizeOpLowering : public RewritePattern {
         result = rewriter.create<arith::MulIOp>(loc, result, values[i]);
       }
       rewriter.replaceOp(op, result);
+      return success();
+    }
+    
+    // Handle product operations: size(product(A, B)) = size(A) * size(B)
+    if (opName == "rocir.logical_product" || opName == "rocir.zipped_product" ||
+        opName == "rocir.tiled_product" || opName == "rocir.flat_product" ||
+        opName == "rocir.raked_product" || opName == "rocir.blocked_product") {
+      
+      Value layoutA = defOp->getOperand(0);
+      Value layoutB = defOp->getOperand(1);
+      
+      // Compute size(A) * size(B)
+      auto sizeA = rewriter.create<SizeOp>(loc, rewriter.getIndexType(), layoutA);
+      auto sizeB = rewriter.create<SizeOp>(loc, rewriter.getIndexType(), layoutB);
+      auto product = rewriter.create<arith::MulIOp>(loc, sizeA, sizeB);
+      
+      rewriter.replaceOp(op, product.getResult());
       return success();
     }
     
@@ -369,6 +388,22 @@ struct MakeOpLowering : public RewritePattern {
 };
 
 // Lower cute.composition to create composed layout
+struct CoalesceOpLowering : public OpRewritePattern<CoalesceOp> {
+  using OpRewritePattern<CoalesceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(CoalesceOp op,
+                                PatternRewriter &rewriter) const override {
+    // Coalesce flattens and combines modes when possible
+    // For our current implementation (flat layouts), coalesce is identity
+    // Future: implement actual coalescing logic for hierarchical layouts
+    Value layout = op.getOperand();
+    
+    // For now, just forward the layout (no-op since we don't have nested layouts in backend)
+    rewriter.replaceOp(op, layout);
+    return success();
+  }
+};
+
 struct CompositionOpLowering : public OpRewritePattern<CompositionOp> {
   using OpRewritePattern<CompositionOp>::OpRewritePattern;
 
@@ -436,16 +471,102 @@ struct LogicalProductOpLowering : public OpRewritePattern<LogicalProductOp> {
 
   LogicalResult matchAndRewrite(LogicalProductOp op,
                                 PatternRewriter &rewriter) const override {
-    // logical_product(block, tiler) creates a tiled layout  
-    // Use composition as approximation
+    // logical_product(block, tiler) creates a layout with size = size(block) * size(tiler)
+    // For now, create a layout that preserves the correct size semantics
     auto loc = op.getLoc();
-    Value inputLayout = op.getOperand(0);  // block
-    Value tilerLayout = op.getOperand(1);  // tiler
+    Value blockLayout = op.getOperand(0);
+    Value tilerLayout = op.getOperand(1);
     
-    auto composed = rewriter.create<CompositionOp>(
-        loc, op.getResult().getType(), inputLayout, tilerLayout);
+    // Get shapes from both layouts
+    auto *blockLayoutOp = blockLayout.getDefiningOp();
+    auto *tilerLayoutOp = tilerLayout.getDefiningOp();
     
-    rewriter.replaceOp(op, composed.getResult());
+    if (!blockLayoutOp || !tilerLayoutOp ||
+        blockLayoutOp->getName().getStringRef() != "rocir.make_layout" ||
+        tilerLayoutOp->getName().getStringRef() != "rocir.make_layout") {
+      // Fallback to composition
+      auto composed = rewriter.create<CompositionOp>(
+          loc, op.getResult().getType(), blockLayout, tilerLayout);
+      rewriter.replaceOp(op, composed.getResult());
+      return success();
+    }
+    
+    auto blockShape = blockLayoutOp->getOperand(0);
+    auto blockStride = blockLayoutOp->getOperand(1);
+    auto tilerShape = tilerLayoutOp->getOperand(0);
+    auto tilerStride = tilerLayoutOp->getOperand(1);
+    
+    auto *blockShapeOp = blockShape.getDefiningOp();
+    auto *tilerShapeOp = tilerShape.getDefiningOp();
+    
+    if (!blockShapeOp || !tilerShapeOp ||
+        blockShapeOp->getName().getStringRef() != "rocir.make_shape" ||
+        tilerShapeOp->getName().getStringRef() != "rocir.make_shape") {
+      // Fallback
+      auto composed = rewriter.create<CompositionOp>(
+          loc, op.getResult().getType(), blockLayout, tilerLayout);
+      rewriter.replaceOp(op, composed.getResult());
+      return success();
+    }
+    
+    // Concatenate block and tiler shape dimensions to create product shape
+    // product shape = (block_dims..., tiler_dims...)
+    SmallVector<Value> productShapeDims;
+    for (auto dim : blockShapeOp->getOperands())
+      productShapeDims.push_back(dim);
+    for (auto dim : tilerShapeOp->getOperands())
+      productShapeDims.push_back(dim);
+    
+    // Determine the rank of the product
+    size_t productRank = productShapeDims.size();
+    
+    // Create shape and stride types with the correct rank
+    auto *ctx = rewriter.getContext();
+    auto productShapeType = ShapeType::get(ctx, productRank);
+    auto productStrideType = StrideType::get(ctx, productRank);
+    
+    // Create new shape with combined dimensions
+    auto productShape = rewriter.create<MakeShapeOp>(
+        loc, productShapeType, productShapeDims);
+    
+    // For stride, we need to compute appropriate strides
+    // For simplicity, create strides that maintain the product structure
+    SmallVector<Value> productStrideDims;
+    
+    // Get block strides
+    auto *blockStrideOp = blockStride.getDefiningOp();
+    if (blockStrideOp && blockStrideOp->getName().getStringRef() == "rocir.make_stride") {
+      for (auto stride : blockStrideOp->getOperands())
+        productStrideDims.push_back(stride);
+    }
+    
+    // Get tiler strides and scale them by block size
+    auto *tilerStrideOp = tilerStride.getDefiningOp();
+    if (tilerStrideOp && tilerStrideOp->getName().getStringRef() == "rocir.make_stride") {
+      // Compute block size
+      Value blockSize = blockShapeOp->getOperand(0);
+      for (size_t i = 1; i < blockShapeOp->getNumOperands(); ++i) {
+        blockSize = rewriter.create<arith::MulIOp>(loc, blockSize, 
+                                                    blockShapeOp->getOperand(i));
+      }
+      
+      // Scale tiler strides by block size
+      for (auto stride : tilerStrideOp->getOperands()) {
+        auto scaledStride = rewriter.create<arith::MulIOp>(loc, stride, blockSize);
+        productStrideDims.push_back(scaledStride);
+      }
+    }
+    
+    auto productStride = rewriter.create<MakeStrideOp>(
+        loc, productStrideType, productStrideDims);
+    
+    // Create the product layout with the correct type
+    auto productLayoutType = LayoutType::get(ctx, productRank);
+    auto productLayout = rewriter.create<MakeLayoutOp>(
+        loc, productLayoutType, productShape.getResult(), 
+        productStride.getResult());
+    
+    rewriter.replaceOp(op, productLayout.getResult());
     return success();
   }
 };
@@ -721,6 +842,7 @@ struct RocirToStandardPass
     patterns.add<Idx2CrdOpLowering>(&getContext());
     patterns.add<GetShapeOpLowering>(&getContext());
     patterns.add<GetStrideOpLowering>(&getContext());
+    patterns.add<CoalesceOpLowering>(&getContext());
     patterns.add<CompositionOpLowering>(&getContext());
     patterns.add<LogicalProductOpLowering>(&getContext());
     patterns.add<ZippedProductOpLowering>(&getContext());
