@@ -4,6 +4,7 @@ from rocdsl.compiler.pipeline import Pipeline, run_pipeline
 from rocdsl.compiler.rocir_opt_helper import apply_rocir_coord_lowering
 from rocdsl.runtime.hip_util import get_hip_arch
 from hip import hip
+from mlir import ir
 import numpy as np
 from functools import wraps
 import os
@@ -126,7 +127,7 @@ def compile_to_hsaco(mlir_module, kernel_name="kernel"):
         try:
             # Try to get assembly output
             asm_module = run_pipeline(
-                llvm_lowered,
+                ir.Module.parse(str(llvm_lowered), context=llvm_lowered.context),
                 Pipeline().gpu_module_to_binary(format="isa")
             )
             from rocdsl.dialects.ext.gpu import get_compile_object_bytes
