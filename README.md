@@ -16,7 +16,7 @@ A modern MLIR-based compiler infrastructure for high performance ROCm kernels, p
   - `Pipeline` API for easy pass management
   - `ArithValue` wrapper for intuitive arithmetic expressions
 - **Hardware Support**:
-  - AMD MI300 (gfx940/gfx942) optimization support (MFMA)
+  - AMD MI300 (gfx942) MI350(gfx950) optimization support (MFMA)
   - Generic ROCm/HIP support
 - **Transformation Passes**:
   - `rocir-coord-lowering`: Lowers layout abstractions to efficient arithmetic
@@ -33,15 +33,9 @@ A modern MLIR-based compiler infrastructure for high performance ROCm kernels, p
 cd rocdsl
 ./build_llvm.sh
 
-# 2. Install Python requirements
-pip install -r python/requirements.txt
-
-# 3. Build the rocdsl project (C++ and Python bindings)
+# 2. Build the rocdsl project (C++ and Python bindings)
 ./build.sh
 
-# 4. Install python bindings in editable mode
-cd python
-python setup.py develop
 ```
 
 ### Run Tests
@@ -150,7 +144,7 @@ binary_module = pipeline.run(module)
 | **Hardware** | ✅ Passing | MFMA (Matrix Fused Multiply-Add) execution on MI300 |
 
 **Verified Platforms**:
-*   AMD MI300X (gfx942, gfx950)
+*   AMD MI300X (gfx942), AMD MI350 (gfx950)
 *   Linux / ROCm 6.x, 7.x
 
 ## 🗂️ Project Structure
