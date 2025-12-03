@@ -33,6 +33,7 @@ def test_print_basic():
     rocdsl.rocir.print(">>> Testing static print")
     rocdsl.rocir.print(">>> Value:", 42)
     print("✓ rocir.print works as Python's built-in print")
+    return True
 
 
 def test_printf_ir_generation():
@@ -56,6 +57,7 @@ def test_printf_ir_generation():
     print("Generated IR:")
     print(ir_str)
     print("✓ rocir.printf generates gpu.printf operation")
+    return True
 
 
 def test_printf_with_multiple_args():
@@ -81,6 +83,7 @@ def test_printf_with_multiple_args():
     print("Generated IR:")
     print(ir_str)
     print("✓ Multiple argument printf works")
+    return True
 
 
 def test_print_vs_printf_concept():
@@ -122,6 +125,7 @@ def test_print_vs_printf_concept():
     print("Generated IR:")
     print(ir_str)
     print("✓ Print vs printf distinction demonstrated")
+    return True
 
 
 def test_printf_with_layout_types():
@@ -152,6 +156,7 @@ def test_printf_with_layout_types():
     print("Generated IR:")
     print(ir_str)
     print("✓ Printf with layout types works")
+    return True
 
 
 if __name__ == "__main__":

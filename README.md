@@ -150,8 +150,8 @@ binary_module = pipeline.run(module)
 | **Hardware** | ✅ Passing | MFMA (Matrix Fused Multiply-Add) execution on MI300 |
 
 **Verified Platforms**:
-*   AMD MI300X (gfx942)
-*   Linux / ROCm 6.x
+*   AMD MI300X (gfx942, gfx950)
+*   Linux / ROCm 6.x, 7.x
 
 ## 🗂️ Project Structure
 

@@ -20,10 +20,6 @@ import numpy as np
 from mlir import ir
 from mlir.dialects import arith, memref, scf
 import mlir.extras.types as T
-    
-    @staticmethod
-    def f32(val):
-        return arith.constant(T.f32(), val)
 
 
 def test_layout_based_transpose():
@@ -153,7 +149,7 @@ def test_strided_layout_access():
             out_idx = (row * out_s + col)._value
             
             val = memref.load(Input, [in_idx.value if hasattr(in_idx, "value") else in_idx])
-            result = (val * Const.f32(2.0)._value)
+            result = (val * arith.constant(T.f32(), 2.0))
             memref.store(result.value if hasattr(result, "value") else result, Output, [out_idx.value if hasattr(out_idx, "value") else out_idx])
 
     ip.__exit__(None, None, None)
