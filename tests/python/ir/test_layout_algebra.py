@@ -15,14 +15,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../python'))
 
 from rocdsl.compiler.context import RAIIMLIRContextModule
 from rocdsl.compiler.pipeline import Pipeline, run_pipeline
-from rocdsl.dialects.ext import rocir, arith
+from rocdsl.dialects.ext import rocir
+from rocdsl.dialects.ext.arith import Index
 from mlir.dialects import func
-from mlir.ir import IntegerAttr, IntegerType, BoolAttr
-
-class Const:
-    @staticmethod
-    def index(val):
-        return arith.index(val)
+from mlir.ir import IntegerAttr, IntegerType, BoolAttr, IndexType, BlockArgument
 
 def unwrap(val):
     """Unwrap ArithValue or other wrappers."""
@@ -31,7 +27,8 @@ def unwrap(val):
     return val
 
 
-def run_lowering_test(ctx, test_name, expected_val=None, expected_vals=None):
+def run_lowering_test(ctx, test_name, expected_val=None, expected_vals=None,
+                      dynamic_indices=None):
     """Run the lowering pipeline and verify success and result value(s).
     
     Uses assertions for pytest compatibility - returns None on success, raises on failure.
@@ -78,14 +75,35 @@ def run_lowering_test(ctx, test_name, expected_val=None, expected_vals=None):
         
         # Handle multiple return values
         if expected_vals is not None:
+            dynamic_set = set(dynamic_indices or [])
             assert len(return_op.operands) == len(expected_vals), \
                 f"{test_name}: Return op has {len(return_op.operands)} operands, expected {len(expected_vals)}."
             
             for i, (operand, expected) in enumerate(zip(return_op.operands, expected_vals)):
+                if i in dynamic_set:
+                    # Check if it's a BlockArgument or if its owner is a Block (both indicate dynamic)
+                    is_dynamic = isinstance(operand, BlockArgument)
+                    if not is_dynamic:
+                        try:
+                            from mlir.ir import Block
+                            is_dynamic = isinstance(operand.owner, Block)
+                        except:
+                            pass
+                    assert is_dynamic, \
+                        f"{test_name}: Value [{i}] expected to be dynamic but is not a block argument."
+                    continue
+                
+                if expected is None:
+                    continue
+                
+                if isinstance(operand, BlockArgument):
+                    raise AssertionError(
+                        f"{test_name}: Value [{i}] unexpectedly dynamic (block argument) when constant was expected.")
+                
                 def_op = operand.owner
                 if def_op.name != "arith.constant":
-                    print(f"  ⚠ {test_name}: Return value [{i}] is not a constant (defined by: {def_op.name})")
-                    continue
+                    raise AssertionError(
+                        f"{test_name}: Return value [{i}] is not a constant (defined by: {def_op.name}).")
                 
                 assert "value" in def_op.attributes, \
                     f"{test_name}: Constant op [{i}] missing 'value' attribute."
@@ -101,9 +119,11 @@ def run_lowering_test(ctx, test_name, expected_val=None, expected_vals=None):
                     actual = int(val_attr)
                 
                 if actual != expected:
-                    # Print all values for debugging
                     all_actual = []
-                    for j, ret_op in enumerate(return_op.operands):
+                    for ret_op in return_op.operands:
+                        if isinstance(ret_op, BlockArgument):
+                            all_actual.append("arg")
+                            continue
                         defining_op = ret_op.owner
                         if hasattr(defining_op, 'value'):
                             val_attr = defining_op.value
@@ -115,10 +135,9 @@ def run_lowering_test(ctx, test_name, expected_val=None, expected_vals=None):
                                 all_actual.append(int(val_attr))
                         else:
                             all_actual.append('?')
-                    print(f"  ACTUAL values: {all_actual}")
-                    print(f"  EXPECTED values: {expected_vals}")
-                assert actual == expected, \
-                    f"{test_name}: Value [{i}] mismatch. Expected {expected}, got {actual}"
+                    raise AssertionError(
+                        f"{test_name}: Value [{i}] mismatch. Expected {expected}, got {actual}. "
+                        f"All values: {all_actual}")
             
             print(f"  ✅ {test_name}: All values verified: {expected_vals}")
         
@@ -176,8 +195,8 @@ def test_coalesce_basic():
     @func.FuncOp.from_py_func()
     def test_coalesce():
         layout = rocir.make_layout(
-            (Const.index(2), (Const.index(1), Const.index(6))),
-            stride=(Const.index(1), (Const.index(6), Const.index(2)))
+            (Index(2), (Index(1), Index(6))),
+            stride=(Index(1), (Index(6), Index(2)))
         )
         
         coalesced = rocir.coalesce(layout)
@@ -188,6 +207,39 @@ def test_coalesce_basic():
     
     # Verify size is preserved: 2 * 1 * 6 = 12
     run_lowering_test(ctx, "coalesce_basic", expected_val=12)
+
+
+def test_coalesce_dynamic_stride():
+    """Cell 4 dynamic portion: verify mixed static/dynamic stride survives lowering."""
+    print("\n" + "="*80)
+    print("Test 1b: Coalesce Dynamic Stride (Cell 4 dynamic behavior)")
+    print("="*80)
+    print("  Input Layout: (2,(1,6)):(1,(?,2))")
+    print("  Expect first stride entry static, second dynamic, third static")
+    
+    ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    index_type = IndexType.get()
+    
+    @func.FuncOp.from_py_func(index_type)
+    def coalesce_dynamic(runtime_stride):
+        layout = rocir.make_layout(
+            (Index(2), (Index(1), Index(6))),
+            stride=(Index(1), (runtime_stride, Index(2)))
+        )
+        coalesced = rocir.coalesce(layout)
+        stride = rocir.get_stride(coalesced)
+        return [
+            unwrap(rocir.get(stride, Index(0))),
+            unwrap(rocir.get(stride, Index(1))),
+            unwrap(rocir.get(stride, Index(2))),
+        ]
+    
+    run_lowering_test(
+        ctx,
+        "coalesce_dynamic_stride",
+        expected_vals=[1, None, 2],
+        dynamic_indices=[1],
+    )
 
 
 # ==============================================================================
@@ -210,12 +262,12 @@ def test_composition_basic():
     @func.FuncOp.from_py_func()
     def run_composition():
         A = rocir.make_layout(
-            (Const.index(6), Const.index(2)),
-            stride=(Const.index(8), Const.index(2))
+            (Index(6), Index(2)),
+            stride=(Index(8), Index(2))
         )
         B = rocir.make_layout(
-            (Const.index(4), Const.index(3)),
-            stride=(Const.index(3), Const.index(1))
+            (Index(4), Index(3)),
+            stride=(Index(3), Index(1))
         )
         R = rocir.composition(A, B)
         
@@ -226,9 +278,9 @@ def test_composition_basic():
         # Get dimensions (rank 3: (2,2,3))
         vals = []
         for i in range(3):
-            vals.append(unwrap(rocir.get(shape, Const.index(i))))
+            vals.append(unwrap(rocir.get(shape, Index(i))))
         for i in range(3):
-            vals.append(unwrap(rocir.get(stride, Const.index(i))))
+            vals.append(unwrap(rocir.get(stride, Index(i))))
         
         return vals
 
@@ -237,28 +289,55 @@ def test_composition_basic():
 
 
 def test_composition_static_vs_dynamic():
-    """Cell 11: Composition with static vs dynamic - (10,2):(16,4) o (5,4):(1,5)"""
+    """Cell 11: Composition with static vs dynamic - (10,2):(16,4) o (5,4):(1,5)
+    
+    This test mirrors Cell 11 from cute_layout_algebra.ipynb which demonstrates
+    the difference between static (compile-time) and dynamic (runtime) types:
+    
+    STATIC types:
+      - Use Index() for literal values
+      - Values are known at compile time
+      - Can be constant-folded during lowering
+      - Result in arith.constant operations
+    
+    DYNAMIC types:
+      - Use function arguments (MLIR block arguments)
+      - Values are only known at runtime
+      - Cannot be constant-folded
+      - Remain as block arguments after lowering
+    """
     print("\n" + "="*80)
     print("Test 2b: Static vs Dynamic Composition (Cell 11)")
     print("="*80)
+    print("  Composition: R = A ◦ B")
     print("  Layout A: (10,2):(16,4)")
     print("  Layout B: (5,4):(1,5)")
     print("  Expected Result: (5,2,2):(16,80,4)")
     print("  Expected Shape: [5, 2, 2]")
     print("  Expected Stride: [16, 80, 4]")
     
+    # -------------------------------------------------------------------------
+    # Part 1: STATIC composition - all compile-time constants
+    # -------------------------------------------------------------------------
+    print("\n  Part 1: STATIC composition (compile-time values)")
+    print("  " + "-"*76)
+    
     ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
     
     @func.FuncOp.from_py_func()
     def run_composition_static():
+        # Create layouts with STATIC dimensions using Index()
+        # These will become arith.constant operations
         A_static = rocir.make_layout(
-            (Const.index(10), Const.index(2)),
-            stride=(Const.index(16), Const.index(4))
+            (Index(10), Index(2)),
+            stride=(Index(16), Index(4))
         )
         B_static = rocir.make_layout(
-            (Const.index(5), Const.index(4)),
-            stride=(Const.index(1), Const.index(5))
+            (Index(5), Index(4)),
+            stride=(Index(1), Index(5))
         )
+        
+        # Compose: R = A ◦ B
         R_static = rocir.composition(A_static, B_static)
         
         # Extract shape and stride
@@ -268,14 +347,95 @@ def test_composition_static_vs_dynamic():
         # Get dimensions (rank 3: (5,2,2))
         vals = []
         for i in range(3):
-            vals.append(unwrap(rocir.get(shape, Const.index(i))))
+            vals.append(unwrap(rocir.get(shape, Index(i))))
         for i in range(3):
-            vals.append(unwrap(rocir.get(stride, Const.index(i))))
+            vals.append(unwrap(rocir.get(stride, Index(i))))
         
         return vals
 
     # Expected: shape [5, 2, 2] + stride [16, 80, 4]
-    run_lowering_test(ctx, "composition_static_vs_dynamic", expected_vals=[5, 2, 2, 16, 80, 4])
+    # All values should be constants after lowering
+    print("  Creating static layout: A_static = make_layout((10, 2), stride=(16, 4))")
+    print("  Creating static layout: B_static = make_layout((5, 4), stride=(1, 5))")
+    print("  Computing: R_static = composition(A_static, B_static)")
+    print("  Expected: All values will be arith.constant operations")
+    run_lowering_test(ctx, "composition_static", expected_vals=[5, 2, 2, 16, 80, 4])
+    
+    # -------------------------------------------------------------------------
+    # Part 2: DYNAMIC composition - runtime values from function arguments
+    # -------------------------------------------------------------------------
+    print("\n  Part 2: DYNAMIC composition (runtime values)")
+    print("  " + "-"*76)
+    
+    ctx_dynamic = RAIIMLIRContextModule(allow_unregistered_dialects=True)
+    index_type = IndexType.get()
+    
+    @func.FuncOp.from_py_func(index_type, index_type, index_type, index_type,
+                                index_type, index_type, index_type, index_type)
+    def run_composition_dynamic(a_dim0, a_dim1, a_stride0, a_stride1,
+                                b_dim0, b_dim1, b_stride0, b_stride1):
+        """
+        Create layouts with DYNAMIC dimensions from function arguments.
+        These values are only known at runtime and cannot be constant-folded.
+        """
+        # Create layouts with DYNAMIC dimensions using function arguments
+        # These remain as block arguments throughout lowering
+        A_dynamic = rocir.make_layout(
+            (a_dim0, a_dim1),
+            stride=(a_stride0, a_stride1)
+        )
+        B_dynamic = rocir.make_layout(
+            (b_dim0, b_dim1),
+            stride=(b_stride0, b_stride1)
+        )
+        
+        # Compose: R = A ◦ B
+        R_dynamic = rocir.composition(A_dynamic, B_dynamic)
+        
+        # Print runtime information using rocir.printf
+        rocir.printf("Dynamic composition: R = A ◦ B\n")
+        rocir.printf("  A: ({},{}):({}{})\n", a_dim0, a_dim1, a_stride0, a_stride1)
+        rocir.printf("  B: ({},{}):({}{})\n", b_dim0, b_dim1, b_stride0, b_stride1)
+        
+        # Extract shape and stride
+        shape = rocir.get_shape(R_dynamic)
+        stride = rocir.get_stride(R_dynamic)
+        
+        # Get dimensions (rank may vary with dynamic composition)
+        # For this test, we'll return a simple dynamic layout for verification
+        vals = [
+            rocir.get(shape, Index(0)),
+            rocir.get(stride, Index(0)),
+        ]
+        
+        rocir.printf("  R shape[0]: {}\n", vals[0])
+        rocir.printf("  R stride[0]: {}\n", vals[1])
+        
+        return [unwrap(v) for v in vals]
+
+    print("  Creating dynamic layout: A_dynamic from function arguments (arg0-arg3)")
+    print("  Creating dynamic layout: B_dynamic from function arguments (arg4-arg7)")
+    print("  Computing: R_dynamic = composition(A_dynamic, B_dynamic)")
+    print("  Expected: Result values will be computed at runtime")
+    print("  Note: rocir.printf() will be lowered to gpu.printf for runtime output")
+    
+    # For dynamic composition, we don't verify exact values since they're runtime-dependent
+    # We just ensure the lowering succeeds and produces valid IR
+    from rocdsl.compiler.pipeline import Pipeline, run_pipeline
+    pipeline = Pipeline().Func(Pipeline().rocir_to_standard()).canonicalize().cse()
+    run_pipeline(ctx_dynamic.module, pipeline)
+    assert ctx_dynamic.module.operation.verify(), "Dynamic composition IR verification failed"
+    print("  ✓ composition_dynamic: Lowering successful!")
+    print("  ✅ composition_dynamic: PASSED")
+    
+    # -------------------------------------------------------------------------
+    # Part 3: MIXED static/dynamic - some compile-time, some runtime values
+    # -------------------------------------------------------------------------
+    print("\n  Part 3: MIXED static/dynamic layout")
+    print("  " + "-"*76)
+    print("  Mixed static/dynamic layouts are fully tested in test_static_vs_dynamic.py")
+    print("  See test_mixed_static_dynamic() for comprehensive coverage")
+    print("  ✅ Refer to test_static_vs_dynamic.py for mixed layout tests")
 
 
 def test_composition_bymode():
@@ -312,12 +472,12 @@ def test_logical_divide_1d():
     @func.FuncOp.from_py_func()
     def run_logical_divide_1d():
         layout = rocir.make_layout(
-            (Const.index(4), Const.index(2), Const.index(3)),
-            stride=(Const.index(2), Const.index(1), Const.index(8))
+            (Index(4), Index(2), Index(3)),
+            stride=(Index(2), Index(1), Index(8))
         )
         tiler = rocir.make_layout(
-            Const.index(4),
-            stride=Const.index(2)
+            Index(4),
+            stride=Index(2)
         )
         res_logical = rocir.logical_divide(layout, tiler)
         
@@ -326,15 +486,15 @@ def test_logical_divide_1d():
         stride = rocir.get_stride(res_logical)
         
         # Get individual dimensions using rocir.get
-        shape_d0 = rocir.get(shape, Const.index(0))
-        shape_d1 = rocir.get(shape, Const.index(1))
-        shape_d2 = rocir.get(shape, Const.index(2))
-        shape_d3 = rocir.get(shape, Const.index(3))
+        shape_d0 = rocir.get(shape, Index(0))
+        shape_d1 = rocir.get(shape, Index(1))
+        shape_d2 = rocir.get(shape, Index(2))
+        shape_d3 = rocir.get(shape, Index(3))
         
-        stride_d0 = rocir.get(stride, Const.index(0))
-        stride_d1 = rocir.get(stride, Const.index(1))
-        stride_d2 = rocir.get(stride, Const.index(2))
-        stride_d3 = rocir.get(stride, Const.index(3))
+        stride_d0 = rocir.get(stride, Index(0))
+        stride_d1 = rocir.get(stride, Index(1))
+        stride_d2 = rocir.get(stride, Index(2))
+        stride_d3 = rocir.get(stride, Index(3))
         
         # Return all values: shape dims, stride dims
         return [unwrap(shape_d0), unwrap(shape_d1), unwrap(shape_d2), unwrap(shape_d3),
@@ -363,23 +523,23 @@ def test_logical_divide_2d():
         # Explicitly construct nested shapes to ensure structure is preserved
         # Input: (9, (4, 8))
         layout_shape = rocir.make_shape(
-            Const.index(9),
-            rocir.make_shape(Const.index(4), Const.index(8))
+            Index(9),
+            rocir.make_shape(Index(4), Index(8))
         )
         layout_stride = rocir.make_stride(
-            Const.index(59),
-            rocir.make_stride(Const.index(13), Const.index(1))
+            Index(59),
+            rocir.make_stride(Index(13), Index(1))
         )
         layout = rocir.make_layout(layout_shape, layout_stride)
 
         # Tiler: (3, (2, 4))
         tiler_shape = rocir.make_shape(
-            Const.index(3),
-            rocir.make_shape(Const.index(2), Const.index(4))
+            Index(3),
+            rocir.make_shape(Index(2), Index(4))
         )
         tiler_stride = rocir.make_stride(
-            Const.index(3),
-            rocir.make_stride(Const.index(1), Const.index(8))
+            Index(3),
+            rocir.make_stride(Index(1), Index(8))
         )
         tiler = rocir.make_layout(tiler_shape, tiler_stride)
 
@@ -392,9 +552,9 @@ def test_logical_divide_2d():
         # Get dimensions (rank 6 after flattening)
         vals = []
         for i in range(6):
-            vals.append(unwrap(rocir.get(shape, Const.index(i))))
+            vals.append(unwrap(rocir.get(shape, Index(i))))
         for i in range(6):
-            vals.append(unwrap(rocir.get(stride, Const.index(i))))
+            vals.append(unwrap(rocir.get(stride, Index(i))))
         
         return vals
 
@@ -425,22 +585,22 @@ def test_zipped_divide():
     @func.FuncOp.from_py_func()
     def run_zipped_divide():
         layout_shape = rocir.make_shape(
-            Const.index(9),
-            rocir.make_shape(Const.index(4), Const.index(8))
+            Index(9),
+            rocir.make_shape(Index(4), Index(8))
         )
         layout_stride = rocir.make_stride(
-            Const.index(59),
-            rocir.make_stride(Const.index(13), Const.index(1))
+            Index(59),
+            rocir.make_stride(Index(13), Index(1))
         )
         layout = rocir.make_layout(layout_shape, layout_stride)
 
         tiler_shape = rocir.make_shape(
-            Const.index(3),
-            rocir.make_shape(Const.index(2), Const.index(4))
+            Index(3),
+            rocir.make_shape(Index(2), Index(4))
         )
         tiler_stride = rocir.make_stride(
-            Const.index(3),
-            rocir.make_stride(Const.index(1), Const.index(8))
+            Index(3),
+            rocir.make_stride(Index(1), Index(8))
         )
         tiler = rocir.make_layout(tiler_shape, tiler_stride)
 
@@ -453,9 +613,9 @@ def test_zipped_divide():
         # Get dimensions (rank 6)
         vals = []
         for i in range(6):
-            vals.append(unwrap(rocir.get(shape, Const.index(i))))
+            vals.append(unwrap(rocir.get(shape, Index(i))))
         for i in range(6):
-            vals.append(unwrap(rocir.get(stride, Const.index(i))))
+            vals.append(unwrap(rocir.get(stride, Index(i))))
         
         return vals
 
@@ -480,22 +640,22 @@ def test_tiled_divide():
     @func.FuncOp.from_py_func()
     def run_tiled_divide():
         layout_shape = rocir.make_shape(
-            Const.index(9),
-            rocir.make_shape(Const.index(4), Const.index(8))
+            Index(9),
+            rocir.make_shape(Index(4), Index(8))
         )
         layout_stride = rocir.make_stride(
-            Const.index(59),
-            rocir.make_stride(Const.index(13), Const.index(1))
+            Index(59),
+            rocir.make_stride(Index(13), Index(1))
         )
         layout = rocir.make_layout(layout_shape, layout_stride)
 
         tiler_shape = rocir.make_shape(
-            Const.index(3),
-            rocir.make_shape(Const.index(2), Const.index(4))
+            Index(3),
+            rocir.make_shape(Index(2), Index(4))
         )
         tiler_stride = rocir.make_stride(
-            Const.index(3),
-            rocir.make_stride(Const.index(1), Const.index(8))
+            Index(3),
+            rocir.make_stride(Index(1), Index(8))
         )
         tiler = rocir.make_layout(tiler_shape, tiler_stride)
 
@@ -508,9 +668,9 @@ def test_tiled_divide():
         # Get dimensions (rank 6)
         vals = []
         for i in range(6):
-            vals.append(unwrap(rocir.get(shape, Const.index(i))))
+            vals.append(unwrap(rocir.get(shape, Index(i))))
         for i in range(6):
-            vals.append(unwrap(rocir.get(stride, Const.index(i))))
+            vals.append(unwrap(rocir.get(stride, Index(i))))
         
         return vals
 
@@ -534,22 +694,22 @@ def test_flat_divide():
     @func.FuncOp.from_py_func()
     def run_flat_divide():
         layout_shape = rocir.make_shape(
-            Const.index(9),
-            rocir.make_shape(Const.index(4), Const.index(8))
+            Index(9),
+            rocir.make_shape(Index(4), Index(8))
         )
         layout_stride = rocir.make_stride(
-            Const.index(59),
-            rocir.make_stride(Const.index(13), Const.index(1))
+            Index(59),
+            rocir.make_stride(Index(13), Index(1))
         )
         layout = rocir.make_layout(layout_shape, layout_stride)
 
         tiler_shape = rocir.make_shape(
-            Const.index(3),
-            rocir.make_shape(Const.index(2), Const.index(4))
+            Index(3),
+            rocir.make_shape(Index(2), Index(4))
         )
         tiler_stride = rocir.make_stride(
-            Const.index(3),
-            rocir.make_stride(Const.index(1), Const.index(8))
+            Index(3),
+            rocir.make_stride(Index(1), Index(8))
         )
         tiler = rocir.make_layout(tiler_shape, tiler_stride)
 
@@ -582,12 +742,12 @@ def test_logical_product_1d():
     @func.FuncOp.from_py_func()
     def run_logical_product():
         layout = rocir.make_layout(
-            (Const.index(2), Const.index(2)),
-            stride=(Const.index(4), Const.index(1))
+            (Index(2), Index(2)),
+            stride=(Index(4), Index(1))
         )
         tiler = rocir.make_layout(
-            Const.index(6),
-            stride=Const.index(1)
+            Index(6),
+            stride=Index(1)
         )
         res_logical = rocir.logical_product(layout, tiler)
         
@@ -599,9 +759,9 @@ def test_logical_product_1d():
         # Product of (2,2) with 6 gives rank 3: (2, 2, 6)
         vals = []
         for i in range(3):  # Layout (2,2) + tiler 6 = rank 3
-            vals.append(unwrap(rocir.get(shape, Const.index(i))))
+            vals.append(unwrap(rocir.get(shape, Index(i))))
         for i in range(3):
-            vals.append(unwrap(rocir.get(stride, Const.index(i))))
+            vals.append(unwrap(rocir.get(stride, Index(i))))
         
         return vals
 
@@ -628,12 +788,12 @@ def test_blocked_raked_product():
     @func.FuncOp.from_py_func()
     def run_blocked_raked_product():
         layout = rocir.make_layout(
-            (Const.index(2), Const.index(5)),
-            stride=(Const.index(5), Const.index(1))
+            (Index(2), Index(5)),
+            stride=(Index(5), Index(1))
         )
         tiler = rocir.make_layout(
-            (Const.index(3), Const.index(4)),
-            stride=(Const.index(1), Const.index(3))
+            (Index(3), Index(4)),
+            stride=(Index(1), Index(3))
         )
         
         res_blocked = rocir.blocked_product(layout, tiler)
@@ -645,9 +805,9 @@ def test_blocked_raked_product():
         # Get dimensions (rank 4: block + tiler)
         vals = []
         for i in range(4):
-            vals.append(unwrap(rocir.get(shape, Const.index(i))))
+            vals.append(unwrap(rocir.get(shape, Index(i))))
         for i in range(4):
-            vals.append(unwrap(rocir.get(stride, Const.index(i))))
+            vals.append(unwrap(rocir.get(stride, Index(i))))
         
         return vals
 
@@ -672,12 +832,12 @@ def test_zipped_tiled_flat_product():
     @func.FuncOp.from_py_func()
     def run_zipped_tiled_flat_product():
         layout = rocir.make_layout(
-            (Const.index(2), Const.index(5)),
-            stride=(Const.index(5), Const.index(1))
+            (Index(2), Index(5)),
+            stride=(Index(5), Index(1))
         )
         tiler = rocir.make_layout(
-            (Const.index(3), Const.index(4)),
-            stride=(Const.index(1), Const.index(3))
+            (Index(3), Index(4)),
+            stride=(Index(1), Index(3))
         )
         
         res_flat = rocir.flat_product(layout, tiler)
@@ -689,9 +849,9 @@ def test_zipped_tiled_flat_product():
         # Get dimensions (rank 4: block + tiler)
         vals = []
         for i in range(4):
-            vals.append(unwrap(rocir.get(shape, Const.index(i))))
+            vals.append(unwrap(rocir.get(shape, Index(i))))
         for i in range(4):
-            vals.append(unwrap(rocir.get(stride, Const.index(i))))
+            vals.append(unwrap(rocir.get(stride, Index(i))))
         
         return vals
 
@@ -716,9 +876,9 @@ def test_complement_simple():
     @func.FuncOp.from_py_func()
     def test_func():
         # Create tiler layout: 3:1
-        c3 = Const.index(3)
-        c1 = Const.index(1)
-        c12 = Const.index(12)
+        c3 = Index(3)
+        c1 = Index(1)
+        c12 = Index(12)
         
         tiler_shape = rocir.make_shape(c3)
         tiler_stride = rocir.make_stride(c1)
@@ -755,15 +915,15 @@ def test_complement_with_divide():
     @func.FuncOp.from_py_func()
     def test_func():
         # Create input layout: 12:1
-        c12 = Const.index(12)
-        c1 = Const.index(1)
+        c12 = Index(12)
+        c1 = Index(1)
         
         input_shape = rocir.make_shape(c12)
         input_stride = rocir.make_stride(c1)
         input_layout = rocir.make_layout(input_shape, input_stride)
         
         # Create tiler layout: 3:1
-        c3 = Const.index(3)
+        c3 = Index(3)
         tiler_shape = rocir.make_shape(c3)
         tiler_stride = rocir.make_stride(c1)
         tiler_layout = rocir.make_layout(tiler_shape, tiler_stride)
@@ -794,9 +954,9 @@ def test_composition_with_tuple():
     @func.FuncOp.from_py_func()
     def test_func():
         # Create simple layouts for composition test
-        c4 = Const.index(4)
-        c2 = Const.index(2)
-        c1 = Const.index(1)
+        c4 = Index(4)
+        c2 = Index(2)
+        c1 = Index(1)
         
         # Layout A: 4:1
         shapeA = rocir.make_shape(c4)
@@ -831,6 +991,7 @@ if __name__ == "__main__":
     
     all_tests = [
         ("Coalesce Basic", test_coalesce_basic),
+        ("Coalesce Dynamic Stride", test_coalesce_dynamic_stride),
         ("Composition Basic", test_composition_basic),
         ("Composition Static vs Dynamic", test_composition_static_vs_dynamic),
         ("Composition By-Mode", test_composition_bymode),

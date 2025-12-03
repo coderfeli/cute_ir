@@ -14,15 +14,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../build/pytho
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../python'))
 
 from rocdsl.compiler.context import RAIIMLIRContextModule
-from rocdsl.dialects.ext import rocir, arith
+from rocdsl.dialects.ext import rocir
+from rocdsl.dialects.ext.arith import Index
 from mlir.dialects import func
 import rocdsl
-
-
-class Const:
-    @staticmethod
-    def index(val):
-        return arith.index(val)
 
 
 def test_print_basic():
@@ -50,7 +45,7 @@ def test_printf_ir_generation():
     
     @func.FuncOp.from_py_func()
     def test_printf_func():
-        x = Const.index(42)
+        x = Index(42)
         # Print a dynamic index value
         rocdsl.rocir.printf(">?? {}", x)
         return []
@@ -73,8 +68,8 @@ def test_printf_with_multiple_args():
     
     @func.FuncOp.from_py_func()
     def test_multi_printf():
-        a = Const.index(10)
-        b = Const.index(20)
+        a = Index(10)
+        b = Index(20)
         # Print multiple values
         rocdsl.rocir.printf("a: {}, b: {}", a, b)
         return []
@@ -104,7 +99,7 @@ def test_print_vs_printf_concept():
     @func.FuncOp.from_py_func()
     def print_example():
         # Dynamic value
-        a = Const.index(8)
+        a = Index(8)
         
         # Static value
         b = 2
@@ -116,7 +111,7 @@ def test_print_vs_printf_concept():
         # rocir.printf: shows runtime values
         rocdsl.rocir.printf(">?? {}", a)  # Will print actual value at runtime
         
-        c2 = Const.index(2)
+        c2 = Index(2)
         rocdsl.rocir.printf(">?? {}", c2)  # Will print 2 at runtime
             
         return []
@@ -139,9 +134,9 @@ def test_printf_with_layout_types():
     
     @func.FuncOp.from_py_func()
     def layout_printf_example():
-        dim0 = Const.index(9)
-        dim1 = Const.index(4)
-        dim2 = Const.index(8)
+        dim0 = Index(9)
+        dim1 = Index(4)
+        dim2 = Index(8)
         
         # Create a nested shape
         shape = rocdsl.rocir.make_shape(dim0, (dim1, dim2))

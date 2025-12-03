@@ -5,6 +5,7 @@ from mlir.ir import IndexType
 from mlir.dialects import func, arith
 
 import rocdsl.dialects.ext.rocir as rocir
+from rocdsl.dialects.ext.arith import Index
 
 def _unwrap(val):
     """Unwrap ArithValue to get underlying MLIR Value."""
@@ -19,12 +20,12 @@ def test_local_partition(ctx, insert_point):
     @func.FuncOp.from_py_func()
     def thread_partition():
         # Global tensor: 128x256
-        c128 = arith.constant(IndexType.get(), 128)
-        c256 = arith.constant(IndexType.get(), 256)
-        c8 = arith.constant(IndexType.get(), 8)
-        c16 = arith.constant(IndexType.get(), 16)
-        c0 = arith.constant(IndexType.get(), 0)
-        c1 = arith.constant(IndexType.get(), 1)
+        c128 = Index(128)
+        c256 = Index(256)
+        c8 = Index(8)
+        c16 = Index(16)
+        c0 = Index(0)
+        c1 = Index(1)
         
         global_shape = rocir.make_shape(c128, c256)
         global_stride = rocir.make_stride(c1, c128)
@@ -53,12 +54,12 @@ def test_local_tile(ctx, insert_point):
     @func.FuncOp.from_py_func()
     def block_tile():
         # Global tensor: 128x256
-        c128 = arith.constant(IndexType.get(), 128)
-        c256 = arith.constant(IndexType.get(), 256)
-        c32 = arith.constant(IndexType.get(), 32)
-        c64 = arith.constant(IndexType.get(), 64)
-        c0 = arith.constant(IndexType.get(), 0)
-        c1 = arith.constant(IndexType.get(), 1)
+        c128 = Index(128)
+        c256 = Index(256)
+        c32 = Index(32)
+        c64 = Index(64)
+        c0 = Index(0)
+        c1 = Index(1)
         
         global_shape = rocir.make_shape(c128, c256)
         global_stride = rocir.make_stride(c1, c128)
@@ -87,11 +88,11 @@ def test_composition(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def compose_layouts():
-        c8 = arith.constant(IndexType.get(), 8)
-        c16 = arith.constant(IndexType.get(), 16)
-        c4 = arith.constant(IndexType.get(), 4)
-        c2 = arith.constant(IndexType.get(), 2)
-        c1 = arith.constant(IndexType.get(), 1)
+        c8 = Index(8)
+        c16 = Index(16)
+        c4 = Index(4)
+        c2 = Index(2)
+        c1 = Index(1)
         
         shape_a = rocir.make_shape(c8, c16)
         stride_a = rocir.make_stride(c1, c8)
@@ -119,14 +120,14 @@ def test_thread_block_hierarchy(ctx, insert_point):
     @func.FuncOp.from_py_func()
     def hierarchical_partition():
         # Global: 256x512
-        c256 = arith.constant(IndexType.get(), 256)
-        c512 = arith.constant(IndexType.get(), 512)
-        c64 = arith.constant(IndexType.get(), 64)
-        c128 = arith.constant(IndexType.get(), 128)
-        c8 = arith.constant(IndexType.get(), 8)
-        c16 = arith.constant(IndexType.get(), 16)
-        c0 = arith.constant(IndexType.get(), 0)
-        c1 = arith.constant(IndexType.get(), 1)
+        c256 = Index(256)
+        c512 = Index(512)
+        c64 = Index(64)
+        c128 = Index(128)
+        c8 = Index(8)
+        c16 = Index(16)
+        c0 = Index(0)
+        c1 = Index(1)
         
         # Global layout
         global_shape = rocir.make_shape(c256, c512)

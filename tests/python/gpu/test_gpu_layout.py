@@ -13,20 +13,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../python'))
 from rocdsl.compiler.context import RAIIMLIRContextModule
 from rocdsl.compiler.pipeline import Pipeline, run_pipeline
 from rocdsl.dialects.ext import gpu, rocir
+from rocdsl.dialects.ext.arith import Index
 from rocdsl.runtime.hip_util import hip_check, get_hip_arch, launch_kernel
 
 import numpy as np
 from mlir import ir
 from mlir.dialects import arith, memref, scf
 import mlir.extras.types as T
-
-
-# Simplified helpers for cleaner code
-class Const:
-    @staticmethod
-    def index(val):
-        return val
-        return arith.constant(T.index(), val)
     
     @staticmethod
     def f32(val):
@@ -64,8 +57,8 @@ def test_layout_based_transpose():
         col = (bx * bdx + tx)._value
         
         # Create layout constants
-        M_c, N_c = Const.index(M), Const.index(N)
-        one = Const.index(1)
+        M_c, N_c = Index(M), Index(N)
+        one = Index(1)
         
         # Input layout (row-major M x N)
         input_shape = rocir.make_shape(M_c, N_c)
@@ -137,9 +130,9 @@ def test_strided_layout_access():
         col = (bx * bdx + tx)._value
         
         # Layout constants
-        M_c, N_c = Const.index(M), Const.index(N)
-        one = Const.index(1)
-        in_s, out_s = Const.index(in_stride_val), Const.index(out_stride_val)
+        M_c, N_c = Index(M), Index(N)
+        one = Index(1)
+        in_s, out_s = Index(in_stride_val), Index(out_stride_val)
         
         # Create layouts with custom strides
         shape = rocir.make_shape(M_c, N_c)
@@ -211,9 +204,9 @@ def test_tiled_layout():
         col = (bx * bdx + tx)._value
         
         # Constants
-        M_c, N_c = Const.index(M), Const.index(N)
-        tile_M_c, tile_N_c = Const.index(TILE_M), Const.index(TILE_N)
-        one = Const.index(1)
+        M_c, N_c = Index(M), Index(N)
+        tile_M_c, tile_N_c = Index(TILE_M), Index(TILE_N)
+        one = Index(1)
         
         # Global layout (row-major)
         global_shape = rocir.make_shape(M_c, N_c)

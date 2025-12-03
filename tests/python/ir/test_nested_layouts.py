@@ -11,14 +11,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../build/pytho
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../python'))
 
 from rocdsl.compiler.context import RAIIMLIRContextModule
-from rocdsl.dialects.ext import rocir, arith
+from rocdsl.dialects.ext import rocir
+from rocdsl.dialects.ext.arith import Index
 from mlir.dialects import func
-
-class Const:
-    @staticmethod
-    def index(val):
-        return arith.index(val)
-
 
 def unwrap(val):
     """Unwrap ArithValue or other wrappers."""
@@ -38,9 +33,9 @@ def test_nested_shape_creation():
     @func.FuncOp.from_py_func()
     def test_nested_shape():
         # Create nested shape: (9, (4, 8))
-        c9 = Const.index(9)
-        c4 = Const.index(4)
-        c8 = Const.index(8)
+        c9 = Index(9)
+        c4 = Index(4)
+        c8 = Index(8)
         
         # Nested shape
         shape = rocir.make_shape(c9, (c4, c8))
@@ -67,9 +62,9 @@ def test_nested_stride_creation():
     @func.FuncOp.from_py_func()
     def test_nested_stride():
         # Create nested stride: (59, (13, 1))
-        c59 = Const.index(59)
-        c13 = Const.index(13)
-        c1 = Const.index(1)
+        c59 = Index(59)
+        c13 = Index(13)
+        c1 = Index(1)
         
         # Nested stride
         stride = rocir.make_stride(c59, (c13, c1))
@@ -95,12 +90,12 @@ def test_nested_layout_creation():
     @func.FuncOp.from_py_func()
     def test_nested_layout():
         # Create nested layout: (9,(4,8)):(59,(13,1))
-        c9 = Const.index(9)
-        c4 = Const.index(4)
-        c8 = Const.index(8)
-        c59 = Const.index(59)
-        c13 = Const.index(13)
-        c1 = Const.index(1)
+        c9 = Index(9)
+        c4 = Index(4)
+        c8 = Index(8)
+        c59 = Index(59)
+        c13 = Index(13)
+        c1 = Index(1)
         
         # Method 1: Create shape and stride separately
         shape = rocir.make_shape(c9, (c4, c8))
@@ -129,12 +124,12 @@ def test_nested_layout_direct():
     
     @func.FuncOp.from_py_func()
     def test_nested_layout_direct():
-        c9 = Const.index(9)
-        c4 = Const.index(4)
-        c8 = Const.index(8)
-        c59 = Const.index(59)
-        c13 = Const.index(13)
-        c1 = Const.index(1)
+        c9 = Index(9)
+        c4 = Index(4)
+        c8 = Index(8)
+        c59 = Index(59)
+        c13 = Index(13)
+        c1 = Index(1)
         
         # Direct tuple syntax mirroring the reference notebook
         layout = rocir.make_layout(
@@ -166,14 +161,14 @@ def test_flat_divide_with_nested_layout():
     def test_flat_divide():
         # Define the original nested layout
         layout = rocir.make_layout(
-            (Const.index(9), (Const.index(4), Const.index(8))),
-            stride=(Const.index(59), (Const.index(13), Const.index(1)))
+            (Index(9), (Index(4), Index(8))),
+            stride=(Index(59), (Index(13), Index(1)))
         )
         
         # Define the tiler with nested structure
         tiler = rocir.make_layout(
-            (Const.index(3), (Const.index(2), Const.index(4))),
-            stride=(Const.index(3), (Const.index(1), Const.index(8)))
+            (Index(3), (Index(2), Index(4))),
+            stride=(Index(3), (Index(1), Index(8)))
         )
         
         # Apply flat divide
@@ -206,14 +201,14 @@ def test_logical_divide_2d_nested():
     def test_logical_divide_2d():
         # Define the original nested layout
         layout = rocir.make_layout(
-            (Const.index(9), (Const.index(4), Const.index(8))),
-            stride=(Const.index(59), (Const.index(13), Const.index(1)))
+            (Index(9), (Index(4), Index(8))),
+            stride=(Index(59), (Index(13), Index(1)))
         )
         
         # Define the tiler
         tiler = rocir.make_layout(
-            (Const.index(3), (Const.index(2), Const.index(4))),
-            stride=(Const.index(3), (Const.index(1), Const.index(8)))
+            (Index(3), (Index(2), Index(4))),
+            stride=(Index(3), (Index(1), Index(8)))
         )
         
         # Apply logical divide

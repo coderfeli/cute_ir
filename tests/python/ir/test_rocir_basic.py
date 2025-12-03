@@ -6,6 +6,7 @@ from mlir.dialects import func, arith
 
 # Import Rocir wrappers
 import rocdsl.dialects.ext.rocir as rocir
+from rocdsl.dialects.ext.arith import Index
 
 
 def _unwrap(val):
@@ -53,8 +54,8 @@ def test_constant_shape(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def constant_shape():
-        c8 = arith.constant(IndexType.get(), 8)
-        c16 = arith.constant(IndexType.get(), 16)
+        c8 = Index(8)
+        c16 = Index(16)
         
         shape = rocir.make_shape(c8, c16)
         size = rocir.size(shape)
@@ -87,7 +88,7 @@ def test_get_shape_stride(ctx, insert_point):
     
     @func.FuncOp.from_py_func(IndexType.get(), IndexType.get())
     def extract_components(dim0, dim1):
-        c1 = arith.constant(IndexType.get(), 1)
+        c1 = Index(1)
         
         shape = rocir.make_shape(dim0, dim1)
         stride = rocir.make_stride(c1, dim0)
@@ -114,9 +115,9 @@ def test_2d_layout(ctx, insert_point):
     @func.FuncOp.from_py_func()
     def layout_2d():
         # Create 8x16 column-major layout
-        c8 = arith.constant(IndexType.get(), 8)
-        c16 = arith.constant(IndexType.get(), 16)
-        c1 = arith.constant(IndexType.get(), 1)
+        c8 = Index(8)
+        c16 = Index(16)
+        c1 = Index(1)
         
         shape = rocir.make_shape(c8, c16)
         stride = rocir.make_stride(c1, c8)  # Column-major: stride (1, 8)

@@ -262,7 +262,7 @@ from mlir.dialects.arith import (
 )
 
 __all__ = [
-    "constant", "index", "i32", "i64", "f32", "f64",
+    "constant", "index", "i32", "i64", "f32", "f64", "Index",
     "ArithValue",
     "AddIOp", "AddFOp", "SubIOp", "SubFOp", "MulIOp", "MulFOp",
     "DivSIOp", "DivFOp", "RemSIOp", "RemFOp",
@@ -271,12 +271,13 @@ __all__ = [
     "SIToFPOp", "FPToSIOp", "SelectOp",
 ]
 
-# 注册自动类型转换：所有 MLIR Value 自动包装为 ArithValue，支持操作符重载
-# 参考 mlir-python-extras 的实现
+# Alias for convenience
+Index = index
+
 try:
     from mlir._mlir_libs._mlir import register_value_caster
     for t in [F32Type, F64Type, IndexType, IntegerType]:
         register_value_caster(t.static_typeid)(ArithValue)
-    print("✓ ArithValue 自动类型转换已注册")
+    print("✓ ArithValue registered for automatic type conversion")
 except Exception as e:
-    print(f"Warning: 无法注册 value caster: {e}")
+    print(f"Warning: failed to register value caster: {e}")

@@ -5,6 +5,7 @@ from mlir.ir import IndexType
 from mlir.dialects import func, arith
 
 import rocdsl.dialects.ext.rocir as rocir
+from rocdsl.dialects.ext.arith import Index
 
 def _unwrap(val):
     """Unwrap ArithValue to get underlying MLIR Value."""
@@ -20,17 +21,17 @@ def test_logical_product(ctx, insert_point):
     @func.FuncOp.from_py_func()
     def tile_layout():
         # Base layout: 16x32
-        c16 = arith.constant(IndexType.get(), 16)
-        c32 = arith.constant(IndexType.get(), 32)
-        c1 = arith.constant(IndexType.get(), 1)
+        c16 = Index(16)
+        c32 = Index(32)
+        c1 = Index(1)
         
         base_shape = rocir.make_shape(c16, c32)
         base_stride = rocir.make_stride(c1, c16)
         base = rocir.make_layout(base_shape, base_stride)
         
         # Tiler: 4x8
-        c4 = arith.constant(IndexType.get(), 4)
-        c8 = arith.constant(IndexType.get(), 8)
+        c4 = Index(4)
+        c8 = Index(8)
         
         tile_shape = rocir.make_shape(c4, c8)
         tile_stride = rocir.make_stride(c1, c4)
@@ -53,11 +54,11 @@ def test_zipped_product(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def zipped_tile():
-        c8 = arith.constant(IndexType.get(), 8)
-        c16 = arith.constant(IndexType.get(), 16)
-        c2 = arith.constant(IndexType.get(), 2)
-        c4 = arith.constant(IndexType.get(), 4)
-        c1 = arith.constant(IndexType.get(), 1)
+        c8 = Index(8)
+        c16 = Index(16)
+        c2 = Index(2)
+        c4 = Index(4)
+        c1 = Index(1)
         
         base_shape = rocir.make_shape(c8, c16)
         base_stride = rocir.make_stride(c1, c8)
@@ -83,11 +84,11 @@ def test_tiled_product(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def tiled_layout():
-        c32 = arith.constant(IndexType.get(), 32)
-        c64 = arith.constant(IndexType.get(), 64)
-        c8 = arith.constant(IndexType.get(), 8)
-        c16 = arith.constant(IndexType.get(), 16)
-        c1 = arith.constant(IndexType.get(), 1)
+        c32 = Index(32)
+        c64 = Index(64)
+        c8 = Index(8)
+        c16 = Index(16)
+        c1 = Index(1)
         
         base_shape = rocir.make_shape(c32, c64)
         base_stride = rocir.make_stride(c1, c32)
@@ -113,11 +114,11 @@ def test_flat_product(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def flat_layout():
-        c16 = arith.constant(IndexType.get(), 16)
-        c8 = arith.constant(IndexType.get(), 8)
-        c4 = arith.constant(IndexType.get(), 4)
-        c2 = arith.constant(IndexType.get(), 2)
-        c1 = arith.constant(IndexType.get(), 1)
+        c16 = Index(16)
+        c8 = Index(8)
+        c4 = Index(4)
+        c2 = Index(2)
+        c1 = Index(1)
         
         base_shape = rocir.make_shape(c16, c8)
         base_stride = rocir.make_stride(c1, c16)
@@ -143,10 +144,10 @@ def test_raked_product(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def raked_layout():
-        c32 = arith.constant(IndexType.get(), 32)
-        c8 = arith.constant(IndexType.get(), 8)
-        c4 = arith.constant(IndexType.get(), 4)
-        c1 = arith.constant(IndexType.get(), 1)
+        c32 = Index(32)
+        c8 = Index(8)
+        c4 = Index(4)
+        c1 = Index(1)
         
         base_shape = rocir.make_shape(c32, c8)
         base_stride = rocir.make_stride(c1, c32)
@@ -172,11 +173,11 @@ def test_blocked_product(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def blocked_layout():
-        c64 = arith.constant(IndexType.get(), 64)
-        c16 = arith.constant(IndexType.get(), 16)
-        c8 = arith.constant(IndexType.get(), 8)
-        c4 = arith.constant(IndexType.get(), 4)
-        c1 = arith.constant(IndexType.get(), 1)
+        c64 = Index(64)
+        c16 = Index(16)
+        c8 = Index(8)
+        c4 = Index(4)
+        c1 = Index(1)
         
         base_shape = rocir.make_shape(c64, c16)
         base_stride = rocir.make_stride(c1, c64)

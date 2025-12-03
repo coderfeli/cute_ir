@@ -5,6 +5,7 @@ from mlir.ir import IndexType
 from mlir.dialects import func, arith
 
 import rocdsl.dialects.ext.rocir as rocir
+from rocdsl.dialects.ext.arith import Index
 
 def _unwrap(val):
     """Unwrap ArithValue to get underlying MLIR Value."""
@@ -20,11 +21,11 @@ def test_logical_divide(ctx, insert_point):
     @func.FuncOp.from_py_func()
     def partition_layout():
         # Global layout: 128x256
-        c128 = arith.constant(IndexType.get(), 128)
-        c256 = arith.constant(IndexType.get(), 256)
-        c16 = arith.constant(IndexType.get(), 16)
-        c32 = arith.constant(IndexType.get(), 32)
-        c1 = arith.constant(IndexType.get(), 1)
+        c128 = Index(128)
+        c256 = Index(256)
+        c16 = Index(16)
+        c32 = Index(32)
+        c1 = Index(1)
         
         global_shape = rocir.make_shape(c128, c256)
         global_stride = rocir.make_stride(c1, c128)
@@ -52,11 +53,11 @@ def test_zipped_divide(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def zipped_partition():
-        c64 = arith.constant(IndexType.get(), 64)
-        c128 = arith.constant(IndexType.get(), 128)
-        c8 = arith.constant(IndexType.get(), 8)
-        c16 = arith.constant(IndexType.get(), 16)
-        c1 = arith.constant(IndexType.get(), 1)
+        c64 = Index(64)
+        c128 = Index(128)
+        c8 = Index(8)
+        c16 = Index(16)
+        c1 = Index(1)
         
         global_shape = rocir.make_shape(c64, c128)
         global_stride = rocir.make_stride(c1, c64)
@@ -82,11 +83,11 @@ def test_tiled_divide(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def tiled_partition():
-        c32 = arith.constant(IndexType.get(), 32)
-        c64 = arith.constant(IndexType.get(), 64)
-        c4 = arith.constant(IndexType.get(), 4)
-        c8 = arith.constant(IndexType.get(), 8)
-        c1 = arith.constant(IndexType.get(), 1)
+        c32 = Index(32)
+        c64 = Index(64)
+        c4 = Index(4)
+        c8 = Index(8)
+        c1 = Index(1)
         
         global_shape = rocir.make_shape(c32, c64)
         global_stride = rocir.make_stride(c1, c32)
@@ -112,11 +113,11 @@ def test_flat_divide(ctx, insert_point):
     
     @func.FuncOp.from_py_func()
     def flat_partition():
-        c16 = arith.constant(IndexType.get(), 16)
-        c32 = arith.constant(IndexType.get(), 32)
-        c4 = arith.constant(IndexType.get(), 4)
-        c8 = arith.constant(IndexType.get(), 8)
-        c1 = arith.constant(IndexType.get(), 1)
+        c16 = Index(16)
+        c32 = Index(32)
+        c4 = Index(4)
+        c8 = Index(8)
+        c1 = Index(1)
         
         global_shape = rocir.make_shape(c16, c32)
         global_stride = rocir.make_stride(c1, c16)
