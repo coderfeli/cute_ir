@@ -255,16 +255,27 @@ def perftest(func):
         # Warmup iterations
         warmup_iters = 5
         print(f"\n  Running {warmup_iters} warmup iterations...")
-        for i in range(warmup_iters):
-            hip.hipModuleLaunchKernel(
-                kernel_func,
-                *grid_dims,
-                *block_dims,
-                sharedMemBytes=0,
-                stream=None,
-                kernelParams=kernel_args,
-                extra=None
-            )
+        
+        # Check if kernel_func is a Python callable (e.g. PyTorch function)
+        is_python_func = callable(kernel_func) and not hasattr(kernel_func, "_handle") # simplified check
+        # Better check: if it's not the expected HIP module function pointer type.
+        # The previous error was: unsupported input type: '<class 'function'>'
+        # So we can just check if it's callable.
+        
+        if callable(kernel_func):
+             for i in range(warmup_iters):
+                kernel_func(*kernel_args)
+        else:
+            for i in range(warmup_iters):
+                hip.hipModuleLaunchKernel(
+                    kernel_func,
+                    *grid_dims,
+                    *block_dims,
+                    sharedMemBytes=0,
+                    stream=None,
+                    kernelParams=kernel_args,
+                    extra=None
+                )
         hip.hipDeviceSynchronize()
         
         # Benchmark iterations
@@ -281,15 +292,18 @@ def perftest(func):
             hip.hipEventRecord(start_event, None)
             
             # Launch kernel
-            hip.hipModuleLaunchKernel(
-                kernel_func,
-                *grid_dims,
-                *block_dims,
-                sharedMemBytes=0,
-                stream=None,
-                kernelParams=kernel_args,
-                extra=None
-            )
+            if callable(kernel_func):
+                kernel_func(*kernel_args)
+            else:
+                hip.hipModuleLaunchKernel(
+                    kernel_func,
+                    *grid_dims,
+                    *block_dims,
+                    sharedMemBytes=0,
+                    stream=None,
+                    kernelParams=kernel_args,
+                    extra=None
+                )
             
             # Record stop event
             hip.hipEventRecord(stop_event, None)
