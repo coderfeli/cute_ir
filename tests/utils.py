@@ -52,7 +52,7 @@ def compile_to_hsaco(mlir_module, kernel_name="kernel"):
             filename = os.path.join(dump_dir, f"{kernel_name}_{stage_name}.mlir")
             with open(filename, 'w') as f:
                 f.write(ir_str)
-            print(f"  📝 Dumped {stage_name}: {filename}")
+            print(f"  Dumped {stage_name}: {filename}")
             
             if enable_ir_printing:
                 print(f"\n{'='*80}")
@@ -103,10 +103,7 @@ def compile_to_hsaco(mlir_module, kernel_name="kernel"):
     # Stage 5: Convert GPU to ROCDL
     rocdl_converted = run_pipeline(
         cf_converted,
-        Pipeline().Gpu(
-            Pipeline()
-            .convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True, runtime="HIP")
-        )
+        Pipeline().Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True, runtime="HIP"))
     )
     dump_stage(rocdl_converted, "07_rocdl")
     
@@ -138,9 +135,9 @@ def compile_to_hsaco(mlir_module, kernel_name="kernel"):
             asm_filename = os.path.join(dump_dir, f"{kernel_name}_10_assembly.s")
             with open(asm_filename, 'wb') as f:
                 f.write(asm_bytes)
-            print(f"  📝 Dumped assembly: {asm_filename}")
+            print(f"  Dumped assembly: {asm_filename}")
         except Exception as e:
-            print(f"  ⚠️  Could not dump assembly: {e}")
+            print(f"  Could not dump assembly: {e}")
     
     # Final binary generation
     lowered = run_pipeline(
@@ -157,7 +154,7 @@ def compile_to_hsaco(mlir_module, kernel_name="kernel"):
         hsaco_filename = os.path.join(dump_dir, f"{kernel_name}_12_final.hsaco")
         with open(hsaco_filename, 'wb') as f:
             f.write(hsaco_bytes)
-        print(f"  📝 Dumped HSACO binary: {hsaco_filename}")
+        print(f"  Dumped HSACO binary: {hsaco_filename}")
     
     return hsaco_bytes
 
@@ -208,7 +205,6 @@ class BenchmarkResults:
         else:
             # For vector operations like A + B = C, we have 3 memory operations
             total_bytes = 3 * self.size * self.dtype_bytes
-            
         return (total_bytes / 1e9) / (self.avg_ms / 1000)
     
     def __str__(self):
@@ -228,6 +224,7 @@ def perftest(func):
     
     The decorated function should return a tuple containing:
         (kernel_func, args, grid_dims, block_dims, size)
+        or (kernel_func, args, grid_dims, block_dims, size, total_bytes)
     
     The decorator will:
     1. Run warmup iterations
@@ -237,12 +234,6 @@ def perftest(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         # Get kernel configuration from the decorated function
-        # func returns: (kernel_func, args, grid_dims, block_dims, size_or_bytes)
-        # We can't change the signature easily, so we check if size seems to be total bytes
-        # or if we can adapt.
-        # For now, just assume existing behavior unless total_bytes kwarg is added to perftest?
-        # No, perftest decorator calls func().
-        
         ret = func(*args, **kwargs)
         if len(ret) == 5:
             kernel_func, kernel_args, grid_dims, block_dims, size = ret
@@ -255,21 +246,16 @@ def perftest(func):
         # Warmup iterations
         warmup_iters = 5
         print(f"\n  Running {warmup_iters} warmup iterations...")
-        
-        if callable(kernel_func):
-             for i in range(warmup_iters):
-                kernel_func(*kernel_args)
-        else:
-            for i in range(warmup_iters):
-                hip.hipModuleLaunchKernel(
-                    kernel_func,
-                    *grid_dims,
-                    *block_dims,
-                    sharedMemBytes=0,
-                    stream=None,
-                    kernelParams=kernel_args,
-                    extra=None
-                )
+        for i in range(warmup_iters):
+            hip.hipModuleLaunchKernel(
+                kernel_func,
+                *grid_dims,
+                *block_dims,
+                sharedMemBytes=0,
+                stream=None,
+                kernelParams=kernel_args,
+                extra=None
+            )
         hip.hipDeviceSynchronize()
         
         # Benchmark iterations
@@ -286,18 +272,15 @@ def perftest(func):
             hip.hipEventRecord(start_event, None)
             
             # Launch kernel
-            if callable(kernel_func):
-                kernel_func(*kernel_args)
-            else:
-                hip.hipModuleLaunchKernel(
-                    kernel_func,
-                    *grid_dims,
-                    *block_dims,
-                    sharedMemBytes=0,
-                    stream=None,
-                    kernelParams=kernel_args,
-                    extra=None
-                )
+            hip.hipModuleLaunchKernel(
+                kernel_func,
+                *grid_dims,
+                *block_dims,
+                sharedMemBytes=0,
+                stream=None,
+                kernelParams=kernel_args,
+                extra=None
+            )
             
             # Record stop event
             hip.hipEventRecord(stop_event, None)

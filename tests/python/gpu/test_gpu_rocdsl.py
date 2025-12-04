@@ -17,7 +17,6 @@ import mlir.extras.types as T
 from hip import hip
 import numpy as np
 import ctypes
-# 为了兼容性，导入需要的 arith ops
 
 def demonstrate_rocir_layouts():
     """

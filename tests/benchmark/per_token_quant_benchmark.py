@@ -72,12 +72,10 @@ def benchmark_per_token_quant():
     # Write: Output (Int8), Scale (FP32 per row)
     # Pass 1 (Read Input) + Pass 2 (Read Input + Write Output) + Write Scale
     # Memory Traffic estimation:
-    # - Read Input (Pass 1): M*N*2 bytes (FP16!)
-    # - Read Input (Pass 2): M*N*2 bytes -> Optimized to 0 (LDS)
+    # - Read Input (Pass 1): M*N*2 bytes
+    # - Read Input (Pass 2): M*N*2 bytes -> Optimized to 0 (Register Cache)
     # - Write Output: M*N*1 bytes
     # - Write Scale: M*4 bytes
-    # Original: (M * N * 2) * 2 + (M * N * 1) + (M * 4)
-    # Optimized: (M * N * 2) * 1 + (M * N * 1) + (M * 4)
     total_bytes_rw = (M * N * 2) * 1 + (M * N * 1) + (M * 4)
 
     print(f"Configuration:")
@@ -152,10 +150,6 @@ def benchmark_per_token_quant():
         vec_type_f32 = T.vector(VEC_WIDTH, T.f32())
 
         # Constants
-        # f_0 = arith.constant(0.0, T.f32())._value
-        # f_127 = arith.constant(127.0, T.f32())._value
-        # f_1 = arith.constant(1.0, T.f32())._value
-        # c_0 = arith.index(0)._value
         f32_type = T.f32()
         f_0 = _arith_mlir.ConstantOp(f32_type, ir.FloatAttr.get(f32_type, 0.0)).result
         f_1 = _arith_mlir.ConstantOp(T.f32(), ir.FloatAttr.get(T.f32(), 1.0)).result
@@ -165,11 +159,9 @@ def benchmark_per_token_quant():
             index_type, ir.IntegerAttr.get(index_type, 0)
         ).result
 
-        # 使用 RocDSL arith.index 简化常量定义
         c_vec_width = arith.index(VEC_WIDTH)._value
 
         # Shared Memory Access
-        # smem = memref.get_global(smem_type, "smem_buffer") # Optimized out: Use Register Caching
         red_buf = memref.get_global(red_type, "red_buffer")
         
         if hasattr(red_buf, "result"):
@@ -183,7 +175,7 @@ def benchmark_per_token_quant():
         # Pass 1: Compute Max (Row Reduction) & Cache to Registers
         # -----------------------------------------------------------
         local_max = f_0
-        cached_vecs = [] # Register Cache
+        cached_vecs = []
 
         # 1. Load Phase (Maximize MLP)
         for i in range(ITERS):
@@ -215,12 +207,11 @@ def benchmark_per_token_quant():
             vec_abs = _math_mlir.absf(vec_val)
 
             # Horizontal Reduction (Vector -> Scalar)
-            # 使用 ReductionOp (注意大写)
             chunk_max = vector.ReductionOp(
                 T.f32(), vector.CombiningKind.MAXIMUMF, vec_abs
             ).result
 
-            # Update thread-local max (改为 maximumf)
+            # Update thread-local max
             local_max = _arith_mlir.MaximumFOp(
                 unwrap(local_max), unwrap(chunk_max)
             ).result
@@ -247,7 +238,7 @@ def benchmark_per_token_quant():
                 unwrap(current_val), unwrap(shuffled_val)
             ).result
 
-        # Cross-Warp Reduction (using Shared Memory)
+        # Cross-Warp Reduction
         c_64 = arith.index(64)._value
         warp_id = _arith_mlir.DivUIOp(unwrap(tid), unwrap(c_64)).result
         lane_id = _arith_mlir.RemUIOp(unwrap(tid), unwrap(c_64)).result
@@ -263,15 +254,13 @@ def benchmark_per_token_quant():
         mlir_gpu.BarrierOp()
         
         # Reduce across warps (Thread 0 only)
-        # Assuming Block Size 256 -> 4 warps.
         is_thread_0 = _arith_mlir.CmpIOp(_arith_mlir.CmpIPredicate.eq, unwrap(tid), unwrap(c_0)).result
         
         if_block_reduce = scf.IfOp(unwrap(is_thread_0))
         with ir.InsertionPoint(if_block_reduce.then_block):
-            # We know there are 4 warps for BLOCK_SIZE=256. 
-            # Ideally should be dynamic but let's unroll for 4.
             final_max_val = f_0
-            for w in range(4): # Hardcoded for BlockSize=256
+            # We know there are 4 warps for BLOCK_SIZE=256. 
+            for w in range(4):
                 c_w = arith.index(w)._value
                 val = memref.load(unwrap(red_val), [unwrap(c_w)])
                 final_max_val = _arith_mlir.MaximumFOp(unwrap(final_max_val), unwrap(val)).result
@@ -288,10 +277,8 @@ def benchmark_per_token_quant():
         # -----------------------------------------------------------
         # Compute Scale
         # -----------------------------------------------------------
-        # scale = reduced_max / 127.0   # 不再用 Python 运算
         scale = _arith_mlir.DivFOp(unwrap(reduced_max), unwrap(f_127)).result
 
-        # if scale == 0: scale = 1.0
         is_zero = _arith_mlir.CmpFOp(
             _arith_mlir.CmpFPredicate.OEQ,
             unwrap(scale),
@@ -306,20 +293,14 @@ def benchmark_per_token_quant():
             _arith_mlir.CmpIPredicate.eq, unwrap(tid), unwrap(c_0)
         ).result
 
-        # 这里一定要传纯 Value
         if_op = scf.IfOp(unwrap(is_thread_0))
         with ir.InsertionPoint(if_op.then_block):
             memref.store(unwrap(final_scale), unwrap(scales), [unwrap(m_idx)])
             scf.YieldOp([])
-        
-        # Synchronization?
-        # Implicitly handled for scale by data dependency (final_scale)
-        # For SMEM: thread T wrote to indices K, thread T reads from indices K. No barrier needed.
 
         # -----------------------------------------------------------
         # Pass 2: Quantize and Store
         # -----------------------------------------------------------
-        # final_scale 是标量 f32 Value
         vec_scale = vector.BroadcastOp(vec_type_f32, unwrap(final_scale)).result
         for i in range(ITERS):
             # 1. Calculate chunk_offset
@@ -355,7 +336,7 @@ def benchmark_per_token_quant():
 
     print("Compiling MLIR module...")
     hsaco = compile_to_hsaco(ctx.module)
-    print(f"✓ Compiled to HSACO: {len(hsaco)} bytes")
+    print(f"Compiled to HSACO: {len(hsaco)} bytes")
 
     # Allocate device memory
     input_size_bytes = M * N * 2  # FP16 = 2 bytes
@@ -443,30 +424,43 @@ def benchmark_per_token_quant():
     # ========================================================================
     # Benchmark Reference Implementation (aiter)
     # ========================================================================
-    if HAS_AITER: # HAS_ATIER
+    if HAS_AITER:
         print("\n" + "=" * 80)
         print("Benchmarking Reference Implementation (aiter)")
         print("=" * 80)
         
-        # Prepare PyTorch tensors
-        # aiter expects float16 (half precision)
         input_torch = torch.from_numpy(input_data_fp16).cuda()
         
-        @perftest
-        def run_aiter_benchmark():
-            return (
-                per_token_quant_hip,
-                (input_torch,),
-                (M, 1, 1),
-                (BLOCK_SIZE, 1, 1),
-                total_elements,
-                total_bytes_rw,
-            )
-            
-        aiter_results = run_aiter_benchmark()
+        # Warmup
+        print(f"  Running warmup iterations...")
+        for _ in range(5):
+            output_torch, scale_torch = per_token_quant_hip(input_torch)
+            torch.cuda.synchronize()
         
-        output_torch, scale_torch = per_token_quant_hip(input_torch)
-        torch.cuda.synchronize()
+        # Benchmark
+        print(f"  Running benchmark iterations...")
+        import time
+        times_ms = []
+        for _ in range(100):
+            torch.cuda.synchronize()
+            start = time.perf_counter()
+            output_torch, scale_torch = per_token_quant_hip(input_torch)
+            torch.cuda.synchronize()
+            end = time.perf_counter()
+            times_ms.append((end - start) * 1000)
+        
+        avg_time = np.mean(times_ms)
+        min_time = np.min(times_ms)
+        max_time = np.max(times_ms)
+        std_time = np.std(times_ms)
+        bandwidth = (total_bytes_rw / 1e9) / (avg_time / 1000)
+        
+        print(f"\n  Reference (aiter) Results:")
+        print(f"  Average Time:  {avg_time:.3f} ms")
+        print(f"  Min Time:      {min_time:.3f} ms")
+        print(f"  Max Time:      {max_time:.3f} ms")
+        print(f"  Std Dev:       {std_time:.3f} ms")
+        print(f"  Bandwidth:     {bandwidth:.2f} GB/s")
         
         # Verify correctness
         output_ref_torch = output_torch.cpu().numpy()
@@ -483,13 +477,13 @@ def benchmark_per_token_quant():
         
         # Performance comparison
         rocdsl_time = results.avg_ms
-        aiter_time = aiter_results.avg_ms
+        aiter_time = avg_time
         speedup = aiter_time / rocdsl_time
         
         print(f"\n" + "=" * 80)
         print(f"Performance Comparison:")
         print(f"  RocDSL:     {rocdsl_time:7.3f} ms  ({results.bandwidth_gbs:8.2f} GB/s)")
-        print(f"  Reference:  {aiter_time:7.3f} ms  ({aiter_results.bandwidth_gbs:8.2f} GB/s)")
+        print(f"  Reference:  {aiter_time:7.3f} ms  ({bandwidth:8.2f} GB/s)")
         print(f"  Speedup:    {speedup:7.2f}x")
         print("=" * 80)
 

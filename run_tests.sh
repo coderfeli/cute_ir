@@ -26,10 +26,10 @@ for test_file in tests/mlir/*.mlir; do
         echo "Running: $test_name"
         $ROCIR_OPT $PASS "$test_file" > /tmp/${test_name}.out 2>&1
         if [ $? -eq 0 ]; then
-            echo "   ✅ PASS"
+            echo "   PASS"
             MLIR_PASS_COUNT=$((MLIR_PASS_COUNT + 1))
         else
-            echo "   ❌ FAIL"
+            echo "   FAIL"
             echo "      Log: /tmp/${test_name}.out"
         fi
     fi
@@ -56,10 +56,10 @@ for test_file in tests/python/ir/test_*.py; do
         echo "Running: $test_name"
         python3 "$test_file" > /dev/null 2>&1
         if [ $? -eq 0 ]; then
-            echo "   ✅ PASS"
+            echo "   PASS"
             IR_PASS_COUNT=$((IR_PASS_COUNT + 1))
         else
-            echo "   ❌ FAIL"
+            echo "   FAIL"
         fi
     fi
 done
@@ -86,10 +86,10 @@ for test_file in tests/python/examples/test_*.py; do
         echo "Running: $test_name"
         python3 "$test_file" > /tmp/${test_name}.log 2>&1
         if [ $? -eq 0 ]; then
-            echo "   ✅ PASS"
+            echo "   PASS"
             EXAMPLE_PASS_COUNT=$((EXAMPLE_PASS_COUNT + 1))
         else
-            echo "   ❌ FAIL"
+            echo "   FAIL"
             echo "      Log: /tmp/${test_name}.log"
         fi
     fi
@@ -110,9 +110,9 @@ echo ""
 if command -v rocm-smi &> /dev/null; then
     GPU_NAME=$(rocm-smi --showproductname 2>/dev/null | grep -oP 'GPU\[\d+\].*' | head -1)
     if [ -n "$GPU_NAME" ]; then
-        echo "🎮 GPU detected: $GPU_NAME"
+        echo "GPU detected: $GPU_NAME"
     else
-        echo "🎮 GPU detected (ROCm available)"
+        echo "GPU detected (ROCm available)"
     fi
     echo ""
     
@@ -126,14 +126,14 @@ if command -v rocm-smi &> /dev/null; then
             echo "Running: $test_name"
             python3 "$test_file" > /tmp/${test_name}.log 2>&1
             if [ $? -eq 0 ]; then
-                echo "   ✅ PASS"
+                echo "   PASS"
                 GPU_PASS_COUNT=$((GPU_PASS_COUNT + 1))
                 # Show key metrics if available
                 if grep -q "GFLOPS" /tmp/${test_name}.log; then
                     grep "GFLOPS" /tmp/${test_name}.log | tail -1 | sed 's/^/      /'
                 fi
             else
-                echo "   ❌ FAIL"
+                echo "   FAIL"
                 echo "      Log: /tmp/${test_name}.log"
             fi
         fi
@@ -144,7 +144,7 @@ if command -v rocm-smi &> /dev/null; then
     
     ALL_GPU_PASSED=$((GPU_PASS_COUNT == GPU_TEST_COUNT))
 else
-    echo "⚠️  No GPU detected (ROCm not found)"
+    echo "No GPU detected (ROCm not found)"
     echo "   Install ROCm to run GPU execution tests"
     echo ""
     ALL_GPU_PASSED=0
@@ -171,14 +171,14 @@ if command -v rocm-smi &> /dev/null; then
             echo "Running: $test_name"
             pytest -sv "$test_file" > /tmp/${test_name}.log 2>&1
             if [ $? -eq 0 ]; then
-                echo "   ✅ PASS"
+                echo "   PASS"
                 BENCHMARK_PASS_COUNT=$((BENCHMARK_PASS_COUNT + 1))
                 # Show key metrics if available
                 if grep -q "Bandwidth:" /tmp/${test_name}.log; then
                     grep "Bandwidth:" /tmp/${test_name}.log | tail -1 | sed 's/^/      /'
                 fi
             else
-                echo "   ❌ FAIL"
+                echo "   FAIL"
                 echo "      Log: /tmp/${test_name}.log"
             fi
         fi
@@ -189,7 +189,7 @@ if command -v rocm-smi &> /dev/null; then
     
     ALL_BENCHMARK_PASSED=$((BENCHMARK_PASS_COUNT == BENCHMARK_TEST_COUNT))
 else
-    echo "⚠️  Skipped (requires GPU)"
+    echo "Skipped (requires GPU)"
     echo ""
     ALL_BENCHMARK_PASSED=1
     BENCHMARK_TEST_COUNT=0
@@ -221,29 +221,29 @@ if [ $ALL_GPU_PASSED -eq 1 ] && [ $ALL_BENCHMARK_PASSED -eq 1 ]; then
     echo ""
     echo ""
     echo "Verified Capabilities:"
-    echo "  ✓ Rocir IR generation and lowering"
-    echo "  ✓ Coordinate operations (crd2idx, layouts)"
-    echo "  ✓ ROCDL dialect operations (381 ops exposed)"
-    echo "  ✓ GPU kernel compilation (MLIR → HSACO)"
-    echo "  ✓ GPU kernel execution (HIP runtime)"
-    echo "  ✓ Shared memory optimizations (LDS)"
-    echo "  ✓ MFMA operations (Pure Python API)"
-    echo "  ✓ Performance benchmarking (bandwidth tests)"
+    echo "  * Rocir IR generation and lowering"
+    echo "  * Coordinate operations (crd2idx, layouts)"
+    echo "  * ROCDL dialect operations (381 ops exposed)"
+    echo "  * GPU kernel compilation (MLIR → HSACO)"
+    echo "  * GPU kernel execution (HIP runtime)"
+    echo "  * Shared memory optimizations (LDS)"
+    echo "  * MFMA operations (Pure Python API)"
+    echo "  * Performance benchmarking (bandwidth tests)"
     echo ""
     exit 0
 else
     if command -v rocm-smi &> /dev/null; then
         echo ""
         if [ $ALL_GPU_PASSED -ne 1 ]; then
-            echo "⚠️  Some GPU tests failed"
+            echo "Some GPU tests failed"
         fi
         if [ $ALL_BENCHMARK_PASSED -ne 1 ]; then
-            echo "⚠️  Some benchmark tests failed"
+            echo "Some benchmark tests failed"
         fi
         exit 1
     else
         echo ""
-        echo "✅ All available tests passed"
+        echo "All available tests passed"
         echo "   (GPU tests skipped - no ROCm GPU detected)"
         exit 0
     fi

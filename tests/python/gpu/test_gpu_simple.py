@@ -43,7 +43,7 @@ def test_vector_add():
         tx, ty = gpu.thread_id("x"), gpu.thread_id("y")
         bdx, bdy = gpu.block_dim("x"), gpu.block_dim("y")
         
-        # Calculate global thread index - 直接使用操作符（自动类型转换）
+        # Calculate global thread index
         row = (by * bdy + ty)._value
         col = (bx * bdx + tx)._value
         

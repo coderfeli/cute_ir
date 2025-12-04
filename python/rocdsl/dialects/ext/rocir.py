@@ -866,14 +866,33 @@ def logical_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, 
         return rocir_ops.LogicalDivideOp(result_type, _unwrap_value(layout), tiler, loc=loc).result
 
 
-def zipped_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
-    """Compute the zipped divide of a layout."""
+def zipped_divide(layout_or_tensor, tiler_or_shape, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+    """Compute the zipped divide of a layout or partition a tensor view.
     
+    This function handles two use cases:
+    1. Layout division: zipped_divide(layout, tiler) -> divided layout
+    2. Tensor partitioning: zipped_divide(tensor_view, tile_shape) -> ZippedTensor
+    
+    Args:
+        layout_or_tensor: Either a layout Value or a TensorView
+        tiler_or_shape: Either a tiler layout Value or a tile shape tuple
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        Either a divided layout Value or a ZippedTensor
+    """
+    # Check if this is a TensorView operation
+    if isinstance(layout_or_tensor, TensorView):
+        # TensorView partitioning case
+        return ZippedTensor(layout_or_tensor, tiler_or_shape)
+    
+    # Layout division case
     loc = _get_location(loc)
-    result_type = layout.type
+    result_type = layout_or_tensor.type
     
     with ip or InsertionPoint.current:
-        return rocir_ops.ZippedDivideOp(result_type, _unwrap_value(layout), tiler, loc=loc).result
+        return rocir_ops.ZippedDivideOp(result_type, _unwrap_value(layout_or_tensor), tiler_or_shape, loc=loc).result
 
 
 def tiled_divide(layout: Value, tiler: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
@@ -1455,11 +1474,6 @@ class ZippedTensor:
             base_indices=base,
             element_type=self.tensor.element_type,
         )
-
-
-def zipped_divide(tensor_view: TensorView, tile_shape) -> ZippedTensor:
-    """Partition a tensor view into block tiles (zip) and remainder."""
-    return ZippedTensor(tensor_view, tile_shape)
 
 
 def partition_src(tiled_copy, tensor, thread_id, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
