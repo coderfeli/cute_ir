@@ -14,6 +14,7 @@ from mlir.ir import (
     IndexType,
     IntegerAttr,
     IntegerType,
+    MemRefType,
 )
 from mlir.dialects import memref, arith, scf, gpu
 
@@ -43,6 +44,11 @@ def _unwrap_value(v):
         from mlir.ir import IndexType, IntegerAttr
         op = arith.ConstantOp(IndexType.get(), IntegerAttr.get(IndexType.get(), v))
         return _unwrap_value(op.result)
+    try:
+        internal = object.__getattribute__(v, "_value")
+        return _unwrap_value(internal)
+    except AttributeError:
+        pass
     if hasattr(v, 'value') and callable(getattr(type(v).value, 'fget', None)):
         # It's a property, call it
         return v.value
@@ -63,30 +69,110 @@ def _get_insertion_point(ip: Optional[InsertionPoint] = None) -> InsertionPoint:
 class TensorView:
     """Lightweight view object representing a tensor slice."""
 
-    def __init__(self, memref_value, shape, base_coords=None):
-        self.memref = _unwrap_value(memref_value)
-        self.shape = tuple(shape) if shape is not None else ()
+    def __init__(
+        self,
+        memref_value,
+        shape,
+        strides=None,
+        base_indices=None,
+        element_type=None,
+    ):
+        self.memref = _unwrap_value(memref_value) if memref_value is not None else None
+        self.shape = tuple(int(s) for s in shape) if shape is not None else ()
         self.rank = len(self.shape)
-        if base_coords is None:
-            base_coords = [_unwrap_value(0) for _ in self.shape]
-        self.base_coords = base_coords
+        if strides is None:
+            strides = []
+            stride = 1
+            for size in reversed(self.shape):
+                strides.insert(0, stride)
+                stride *= int(size)
+        self.strides = tuple(int(s) for s in strides)
+        if base_indices is None:
+            base_indices = [0] * self.rank
+        self.base_indices = [_to_index_value(b) for b in base_indices]
+        mem_type = getattr(self.memref, "type", None)
+        if element_type is None and mem_type is not None and hasattr(mem_type, "element_type"):
+            element_type = mem_type.element_type
+        self.element_type = element_type
+
+    def numel(self) -> int:
+        """Return total number of elements in the view."""
+        total = 1
+        for size in self.shape:
+            total *= int(size)
+        return total
+
+    def offsets_from_linear(self, linear_idx):
+        """Return per-dimension offsets for a given linear index."""
+        idx_val = _to_index_value(linear_idx)
+        return [_unwrap_value(v) for v in _linear_idx_to_coords(idx_val, self.shape)]
+
+    def coords_from_linear(self, linear_idx):
+        """Return absolute coordinates for a given linear index."""
+        offsets = self.offsets_from_linear(linear_idx)
+        coords = []
+        for dim, offset in enumerate(offsets):
+            base = self.base_indices[dim] if dim < len(self.base_indices) else _to_index_value(0)
+            coords.append(_unwrap_value(_add_index(base, offset)))
+        return coords
+
+    def _normalize_coords(self, coords):
+        if not isinstance(coords, (list, tuple)):
+            coords = [coords]
+        norm = []
+        for idx in coords:
+            if isinstance(idx, int):
+                norm.append(const_index(idx))
+            else:
+                norm.append(_unwrap_value(idx))
+        return norm
+
+    def load(self, coords, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+        if self.memref is None:
+            raise ValueError("TensorView has no backing memref for load")
+        loc = _get_location(loc)
+        coords = self._normalize_coords(coords)
+        with ip or InsertionPoint.current:
+            op = memref.load(self.memref, coords, loc=loc)
+        return _unwrap_value(op.result if hasattr(op, "result") else op)
+
+    def store(self, value, coords, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+        if self.memref is None:
+            raise ValueError("TensorView has no backing memref for store")
+        loc = _get_location(loc)
+        coords = self._normalize_coords(coords)
+        with ip or InsertionPoint.current:
+            memref.store(_unwrap_value(value), self.memref, coords, loc=loc)
+
+    def __getitem__(self, coords):
+        return self.load(coords)
+
+    def __setitem__(self, coords, value):
+        self.store(value, coords)
 
 
-def _to_index_value(val):
+def _to_index_value(val, loc: Optional[Location] = None):
     """Convert python int or MLIR value to an index-typed MLIR value."""
-    return _unwrap_value(val)
+    val = _unwrap_value(val)
+    if isinstance(val, Value):
+        return val
+    if isinstance(val, int):
+        const = arith.ConstantOp(IndexType.get(), IntegerAttr.get(IndexType.get(), int(val)), loc=loc)
+        return const.result
+    return val
 
 
 def _linear_idx_to_coords(index_value, dims):
     """Convert linear index into per-dimension coordinates."""
     coords = []
-    remaining = _to_index_value(index_value)
+    remaining = _unwrap_value(_to_index_value(index_value))
     for size in reversed(dims):
-        size_val = _to_index_value(size)
-        rem_val = _to_index_value(remaining)
-        coord = arith.RemUIOp(rem_val, size_val).result
+        size_val = _unwrap_value(_to_index_value(size))
+        rem = _unwrap_value(remaining)
+        sz = _unwrap_value(size_val)
+        coord = arith.RemUIOp(rem, sz).result
         coords.append(coord)
-        remaining = arith.DivUIOp(rem_val, size_val).result
+        remaining = arith.DivUIOp(rem, sz).result
     coords.reverse()
     return coords
 
@@ -102,9 +188,39 @@ def _add_index(base, offset):
 
 def _scale_index(value, factor):
     """Scale an index value by an integer factor."""
-    value_val = _to_index_value(value)
-    factor_val = _to_index_value(factor)
+    value_val = _unwrap_value(_to_index_value(value))
+    if isinstance(factor, int):
+        if factor == 0:
+            return _to_index_value(0)
+        result = value_val
+        for _ in range(int(factor) - 1):
+            result = _unwrap_value(arith.AddIOp(result, value_val).result)
+        return result
+    factor_val = _unwrap_value(_to_index_value(factor))
     return arith.MulIOp(value_val, factor_val).result
+
+
+def const_index(value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+    """Create an index-typed constant Value."""
+    loc = _get_location(loc)
+    with ip or InsertionPoint.current:
+        op = arith.ConstantOp(IndexType.get(), IntegerAttr.get(IndexType.get(), int(value)), loc=loc)
+        return _unwrap_value(op.result if hasattr(op, "result") else op)
+
+
+def thread_idx(axis: str = "x"):
+    """Return the current thread index along the given axis."""
+    return gpu.thread_id(axis)
+
+
+def block_idx(axis: str = "x"):
+    """Return the current block index along the given axis."""
+    return gpu.block_id(axis)
+
+
+def block_dim(axis: str = "x"):
+    """Return the block dimension along the given axis."""
+    return gpu.block_dim(axis)
 
 
 class ShapeType(Type):
@@ -952,12 +1068,11 @@ class ThrCopy:
         Returns:
             Thread's portion of the tensor
         """
-        # Would use local_partition or similar operation
-        return tensor
+        return partition_src(self.tiled_copy, tensor, self.thread_idx, loc=loc, ip=ip)
     
     def partition_D(self, tensor: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
         """Partition destination tensor for this thread."""
-        return tensor
+        return partition_dst(self.tiled_copy, tensor, self.thread_idx, loc=loc, ip=ip)
     
     def __repr__(self):
         return f"ThrCopy({self.tiled_copy}, tid={self.thread_idx})"
@@ -1014,32 +1129,28 @@ class Fragment:
 
 def make_fragment_like(template, element_type: Type = None, loc: Optional[Location] = None,
                        ip: Optional[InsertionPoint] = None):
-    """Create a fragment buffer.
-    
-    If `template` is a TiledCopy descriptor, a TensorView matching its value tile
-    shape is returned. Otherwise this behaves like the previous implementation
-    and simply allocates a memref matching the provided tensor."""
+    """Create a fragment buffer mirroring the provided template."""
     loc = _get_location(loc)
+    if isinstance(template, TensorView):
+        elem_ty = element_type or template.element_type
+        memref_type = MemRefType.get(template.shape, elem_ty)
+        with ip or InsertionPoint.current:
+            buffer = memref.AllocaOp(memref_type, [], [], loc=loc).result
+        zeros = [0] * template.rank
+        return TensorView(buffer, template.shape, strides=template.strides, base_indices=zeros, element_type=elem_ty)
     if isinstance(template, TiledCopy):
         if element_type is None:
             raise ValueError("make_fragment_like(tiled_copy, element_type=...) requires element_type")
         val_shape = template.val_shape
-        if val_shape is None:
-            raise ValueError("tiled_copy missing val_shape metadata")
-        from mlir.ir import MemRefType
         memref_type = MemRefType.get(val_shape, element_type)
         with ip or InsertionPoint.current:
             buffer = memref.AllocaOp(memref_type, [], [], loc=loc).result
-        base_coords = [_to_index_value(0) for _ in val_shape]
-        return TensorView(buffer, val_shape, base_coords)
-    
-    tensor = _unwrap_value(template)
-    tensor_type = tensor.type
-    with ip or InsertionPoint.current:
-        return memref.AllocaOp(tensor_type, [], [], loc=loc).result
+        zeros = [0] * len(val_shape)
+        return TensorView(buffer, val_shape, strides=None, base_indices=zeros, element_type=element_type)
+    raise ValueError("Unsupported template type for make_fragment_like")
 
 
-def make_rmem_tensor(shape, element_type: Type, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+def make_rmem_tensor(shape, element_type: Type, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> TensorView:
     """Create a tensor in register memory with given shape and type.
     
     Args:
@@ -1054,19 +1165,14 @@ def make_rmem_tensor(shape, element_type: Type, loc: Optional[Location] = None, 
     Example:
         >>> frgPred = rocir.make_rmem_tensor((4, 4), Boolean)
     """
-    from mlir.ir import MemRefType
-    
     loc = _get_location(loc)
-    
-    # Construct MemRefType from shape tuple
-    if isinstance(shape, (tuple, list)):
-        memref_type = MemRefType.get(shape, element_type)
-    else:
-        # Fallback/TODO: handle Value shape dynamic alloc
+    if not isinstance(shape, (tuple, list)):
         raise NotImplementedError("Dynamic shape not supported in make_rmem_tensor yet")
-        
+    memref_type = MemRefType.get(shape, element_type)
     with ip or InsertionPoint.current:
-        return memref.AllocaOp(memref_type, [], [], loc=loc).result
+        buffer = memref.AllocaOp(memref_type, [], [], loc=loc).result
+    zeros = [0] * len(shape)
+    return TensorView(buffer, tuple(int(s) for s in shape), strides=None, base_indices=zeros, element_type=element_type)
 
 
 def make_identity_tensor(shape, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
@@ -1088,9 +1194,19 @@ def make_identity_tensor(shape, loc: Optional[Location] = None, ip: Optional[Ins
         >>> cC = rocir.zipped_divide(idC, tiler=tiler_mn)
     """
     loc = _get_location(loc)
-    # For now, return shape as-is
-    # Full implementation would create proper identity mapping
-    return shape
+    if isinstance(shape, TensorView):
+        dims = shape.shape
+    elif isinstance(shape, (tuple, list)):
+        dims = tuple(int(s) for s in shape)
+    else:
+        raise ValueError("make_identity_tensor expects a TensorView or shape tuple")
+    strides = []
+    stride = 1
+    for size in reversed(dims):
+        strides.insert(0, stride)
+        stride *= int(size)
+    base = [_to_index_value(0, loc) for _ in dims]
+    return TensorView(None, dims, strides=strides, base_indices=base, element_type=IndexType.get())
 
 
 def make_ordered_layout(shape: tuple, order: tuple = None, stride: tuple = None,
@@ -1209,13 +1325,27 @@ def elem_less(a, b, loc: Optional[Location] = None, ip: Optional[InsertionPoint]
         >>> frgPred[i] = val
     """
     from mlir.dialects import arith
-    # Unwrap values
-    a_val = _unwrap_value(a)
-    b_val = _unwrap_value(b) if not isinstance(b, (tuple, list)) else _unwrap_value(b[0])
-    
-    # Generate comparison
+    loc = _get_location(loc)
+
+    def _to_limits(b_val, rank):
+        if isinstance(b_val, (tuple, list)):
+            return [_to_index_value(dim, loc) for dim in b_val]
+        return [_to_index_value(b_val, loc) for _ in range(rank)]
+
     with ip or InsertionPoint.current:
-        return arith.cmpi(arith.CmpIPredicate.slt, a_val, b_val)
+        if isinstance(a, (list, tuple)):
+            limits = _to_limits(b, len(a))
+            cond = None
+            for coord, limit in zip(a, limits):
+                cmp = arith.CmpIOp(arith.CmpIPredicate.ult, _unwrap_value(coord), _unwrap_value(limit), loc=loc).result
+                if cond is None:
+                    cond = cmp
+                else:
+                    cond = arith.AndIOp(_unwrap_value(cond), _unwrap_value(cmp), loc=loc).result
+            return _unwrap_value(cond)
+        a_val = _unwrap_value(a)
+        limit = _to_limits(b, 1)[0]
+        return arith.CmpIOp(arith.CmpIPredicate.ult, a_val, _unwrap_value(limit), loc=loc).result
 
 
 #===----------------------------------------------------------------------===//
@@ -1273,14 +1403,63 @@ def make_tiled_copy_tv(copy_atom: CopyAtom, thr_layout: Value, val_layout: Value
     return tiled_copy
 
 
-def make_tensor(memref, layout, shape, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> TensorView:
+def make_tensor(memref, layout=None, shape=None, strides=None, loc: Optional[Location] = None,
+                ip: Optional[InsertionPoint] = None) -> TensorView:
     """Create a tensor view from a memref with a specific layout and shape."""
     if shape is None:
         raise ValueError("make_tensor requires explicit shape information")
-    _get_location(loc)  # ensure location evaluated for consistency
-    _unwrap_value(layout)  # ensure layout op emitted
-    base_coords = [_to_index_value(0) for _ in shape]
-    return TensorView(memref, shape, base_coords)
+    _get_location(loc)
+    if layout is not None:
+        _unwrap_value(layout)
+    if strides is None:
+        strides = []
+        stride = 1
+        for size in reversed(shape):
+            strides.insert(0, stride)
+            stride *= int(size)
+    base = [0] * len(shape)
+    return TensorView(memref, shape, strides=strides, base_indices=base)
+
+
+class ZippedTensor:
+    """Represents a tensor partitioned into tiles for each block."""
+
+    def __init__(self, tensor_view: TensorView, tile_shape):
+        self.tensor = tensor_view
+        self.tile_shape = tuple(int(s) for s in tile_shape)
+        self.rank = tensor_view.rank
+        self.block_shape = tuple(
+            max(1, (tensor_view.shape[i] + self.tile_shape[i] - 1) // self.tile_shape[i])
+            for i in range(self.rank)
+        )
+
+    def _normalize_indices(self, key):
+        if isinstance(key, tuple):
+            if len(key) == 2 and isinstance(key[0], tuple):
+                key = key[1]
+            if len(key) == self.rank:
+                return [_to_index_value(k) for k in key]
+        # Fallback to linear index
+        return _linear_idx_to_coords(_to_index_value(key), self.block_shape)
+
+    def __getitem__(self, block_idx):
+        coords = self._normalize_indices(block_idx)
+        base = []
+        for dim in range(self.rank):
+            offset = _scale_index(coords[dim], self.tile_shape[dim])
+            base.append(_add_index(self.tensor.base_indices[dim], offset))
+        return TensorView(
+            self.tensor.memref,
+            self.tile_shape,
+            strides=self.tensor.strides,
+            base_indices=base,
+            element_type=self.tensor.element_type,
+        )
+
+
+def zipped_divide(tensor_view: TensorView, tile_shape) -> ZippedTensor:
+    """Partition a tensor view into block tiles (zip) and remainder."""
+    return ZippedTensor(tensor_view, tile_shape)
 
 
 def partition_src(tiled_copy, tensor, thread_id, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
@@ -1292,14 +1471,15 @@ def partition_src(tiled_copy, tensor, thread_id, loc: Optional[Location] = None,
     val_shape = getattr(tiled_copy, "val_shape", None)
     if thr_shape is None or val_shape is None:
         raise ValueError("tiled_copy is missing thr_shape/val_shape metadata")
-    coords = _linear_idx_to_coords(_to_index_value(thread_id), thr_shape)
-    base_coords = []
+    tid_val = _to_index_value(thread_id)
+    coords = _linear_idx_to_coords(tid_val, thr_shape)
+    base_indices = []
     for dim in range(tensor.rank):
         coord = coords[dim] if dim < len(coords) else _to_index_value(0)
         step = val_shape[dim] if dim < len(val_shape) else 1
         offset = _scale_index(coord, step)
-        base_coords.append(_add_index(tensor.base_coords[dim], offset))
-    return TensorView(tensor.memref, tensor.shape, base_coords)
+        base_indices.append(_add_index(tensor.base_indices[dim], offset))
+    return TensorView(tensor.memref, val_shape, strides=tensor.strides, base_indices=base_indices, element_type=tensor.element_type)
 
 
 def partition_dst(tiled_copy, tensor, thread_id, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
@@ -1350,44 +1530,67 @@ def copy(copy_desc, src, dst,
     """
     from mlir.dialects import memref as memref_dialect
     loc = _get_location(loc)
-    if isinstance(copy_desc, TiledCopy) and isinstance(src, TensorView) and isinstance(dst, TensorView):
-        val_shape = copy_desc.val_shape
-        if val_shape is None:
-            raise ValueError("tiled_copy missing val_shape metadata")
-        offsets = [_to_index_value(0) for _ in val_shape]
-        def recurse(dim):
-            if dim == len(val_shape):
-                src_coords = [_to_index_value(_add_index(src.base_coords[i], offsets[i])) for i in range(src.rank)]
-                dst_coords = [_to_index_value(_add_index(dst.base_coords[i], offsets[i])) for i in range(dst.rank)]
-                val = memref_dialect.load(src.memref, src_coords)
+
+    def emit_tensor_copy(copy_shape, src_view: TensorView, dst_view: TensorView, pred_view: Optional[TensorView]):
+        def recurse(dim, src_idx, dst_idx, pred_idx):
+            if dim == len(copy_shape):
+                load_idx = [_unwrap_value(i) for i in src_idx]
+                store_idx = [_unwrap_value(i) for i in dst_idx]
+                load_op = memref_dialect.load(src_view.memref, load_idx)
+                val = load_op.result if hasattr(load_op, "result") else load_op
                 val = _unwrap_value(val)
-                memref_dialect.store(val, dst.memref, dst_coords)
+                if pred_view is not None:
+                    pred_idx_vals = [_unwrap_value(i) for i in pred_idx]
+                    pred_op = memref_dialect.load(pred_view.memref, pred_idx_vals)
+                    flag = pred_op.result if hasattr(pred_op, "result") else pred_op
+                    flag = _unwrap_value(flag)
+                    zero_op = arith.ConstantOp(flag.type, IntegerAttr.get(flag.type, 0), loc=loc)
+                    zero = _unwrap_value(zero_op.result if hasattr(zero_op, "result") else zero_op)
+                    cond = arith.CmpIOp(arith.CmpIPredicate.ne, flag, zero, loc=loc).result
+                    cond = _unwrap_value(cond)
+                    if_op = scf.IfOp(cond, [], loc=loc)
+                    with InsertionPoint(if_op.then_block):
+                        memref_dialect.store(val, dst_view.memref, store_idx)
+                        scf.YieldOp([])
+                else:
+                    memref_dialect.store(val, dst_view.memref, store_idx)
                 return
-            for i in range(val_shape[dim]):
-                offsets[dim] = _to_index_value(i)
-                recurse(dim + 1)
+            extent = int(copy_shape[dim])
+            base_src = src_view.base_indices[dim] if dim < len(src_view.base_indices) else _to_index_value(0, loc)
+            base_dst = dst_view.base_indices[dim] if dim < len(dst_view.base_indices) else _to_index_value(0, loc)
+            base_pred = pred_view.base_indices[dim] if pred_view is not None else None
+            for i in range(extent):
+                off = _to_index_value(i, loc)
+                next_src = _add_index(base_src, off)
+                next_dst = _add_index(base_dst, off)
+                next_pred_idx = pred_idx
+                if pred_view is not None:
+                    next_pred_idx = pred_idx + [_add_index(base_pred, off)]
+                recurse(dim + 1, src_idx + [next_src], dst_idx + [next_dst], next_pred_idx)
+
         with ip or InsertionPoint.current:
-            recurse(0)
+            recurse(0, [], [], [])
+
+    if isinstance(copy_desc, TiledCopy) and isinstance(src, TensorView) and isinstance(dst, TensorView):
+        pred_view = pred if isinstance(pred, TensorView) else None
+        emit_tensor_copy(copy_desc.val_shape, src, dst, pred_view)
         return
-    
-    copy_atom = copy_desc
+
+    if isinstance(src, TensorView) and isinstance(dst, TensorView):
+        pred_view = pred if isinstance(pred, TensorView) else None
+        emit_tensor_copy(src.shape, src, dst, pred_view)
+        return
+
     src_val = _unwrap_value(src)
     dst_val = _unwrap_value(dst)
     with ip or InsertionPoint.current:
         if src_indices is not None and dst_indices is not None:
             s_idx = [_unwrap_value(i) for i in src_indices]
             d_idx = [_unwrap_value(i) for i in dst_indices]
-            val_op = memref_dialect.load(src_val, s_idx)
-            if hasattr(val_op, 'result'):
-                val = val_op.result
-            elif hasattr(val_op, 'results') and len(val_op.results) > 0:
-                val = val_op.results[0]
-            else:
-                val = val_op
-            val = _unwrap_value(val)
+            val = memref_dialect.load(src_val, s_idx)
             memref_dialect.store(val, dst_val, d_idx)
         else:
-            pass
+            raise ValueError("copy requires explicit indices for raw values")
 
 
 #===----------------------------------------------------------------------===//
@@ -1462,6 +1665,10 @@ __all__ = [
     "get_stride",
     "composition",
     "coalesce",
+    "const_index",
+    "thread_idx",
+    "block_idx",
+    "block_dim",
     # Product operations
     "logical_product",
     "zipped_product",

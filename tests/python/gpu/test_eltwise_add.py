@@ -13,6 +13,7 @@ import os
 import argparse
 import numpy as np
 import ctypes
+import pytest
 
 # Setup paths
 sys.path.insert(0, os.path.join(os.environ.get('MLIR_PATH', ''), 'tools/mlir/python_packages/mlir_core'))
@@ -23,8 +24,8 @@ from rocdsl.compiler.context import RAIIMLIRContextModule
 from rocdsl.dialects.ext import func, gpu, rocir, rocm
 from rocdsl.dialects.ext.arith import Index
 from rocdsl.runtime.hip_util import hip_check, get_hip_arch
-from mlir.ir import F16Type, F32Type, IndexType, InsertionPoint, Value
-from mlir.dialects import memref, arith, scf
+from mlir.ir import F16Type, F32Type, IntegerType, InsertionPoint
+from mlir.dialects import arith
 import mlir.extras.types as T
 from hip import hip
 
@@ -54,84 +55,23 @@ def create_elementwise_add_kernel(M: int, N: int, dtype=F32Type):
     ip = InsertionPoint.at_block_begin(gpu_mod.regions[0].blocks[0])
     ip.__enter__()
     
-    # Demonstrate RocDSL API usage (compile-time)
-    print("\n[RocDSL Layout Algebra API Demo] - 展示所有核心API:")
-    
-    # ===== 1. Layout 创建 =====
-    # make_ordered_layout: 创建带维度顺序的layout
-    # 用于定义线程和数据的多维排布
-    THR_M, THR_N = 4, 32  # Thread layout: 4行 x 32列的线程排布
-    VAL_M, VAL_N = 4, 4    # Value layout: 每个线程处理4x4个元素
-    
-    # 创建Thread Layout (描述线程在块内的排布方式)
-    thr_layout = rocir.make_ordered_layout((THR_M, THR_N), order=(1, 0))
-    print(f"  ✓ make_ordered_layout: thread ({THR_M}, {THR_N})")
-    
-    # 创建Value Layout (描述每个线程处理的数据排布)
-    val_layout = rocir.make_ordered_layout((VAL_M, VAL_N), order=(1, 0))
-    print(f"  ✓ make_ordered_layout: value ({VAL_M}, {VAL_N})")
-    
-    # ===== 2. TV Layout 组合 =====
-    # make_layout_tv: 组合thread和value layout
-    # 这是Layout Algebra的核心：thread-value分解
-    tiler_mn, tv_layout = rocir.make_layout_tv(thr_layout, val_layout)
-    print(f"  ✓ make_layout_tv: combined thread+value layouts")
-    
-    # ===== 3. Copy Atom 创建 =====
-    # make_copy_atom: 定义原子拷贝操作
-    # 指定数据类型和向量化宽度
-    copy_atom_load = rocir.make_copy_atom(dtype.get(), vector_size=8)
-    copy_atom_store = rocir.make_copy_atom(dtype.get(), vector_size=8)
-    print(f"  ✓ make_copy_atom: vector_size=8 for G2R and R2G")
-    
-    # ===== 4. Tiled Copy 创建 =====
-    # make_tiled_copy_tv: 基于TV layout创建tiled copy
-    # 这定义了如何在线程间分配和拷贝数据
-    tiled_copy_A = rocir.make_tiled_copy_tv(copy_atom_load, thr_layout, val_layout)
-    tiled_copy_B = rocir.make_tiled_copy_tv(copy_atom_load, thr_layout, val_layout)
-    tiled_copy_C = rocir.make_tiled_copy_tv(copy_atom_store, thr_layout, val_layout)
-    print(f"  ✓ make_tiled_copy_tv: created for A, B, C tensors")
-    
-    # ===== 5. Per-Thread Slice =====
-    # get_slice: 获取特定线程的slice
-    # 用于将全局tiled copy分解为每个线程的操作
-    tidx_demo = Index(0)
-    thr_copy_A = tiled_copy_A.get_slice(tidx_demo)
-    print(f"  ✓ get_slice: per-thread copy slice")
-    
-    print("\n[RocDSL API Demo] All RocDSL API operations completed successfully!")
-    print("[RocDSL INFO] Now generating actual GPU kernel...\n")
-    
-    # Create actual GPU kernel - 对齐 CUTLASS elementwise_add 实现
     @gpu.func(emit=True)
     def elementwise_add_kernel(A: T.memref(M, N, dtype.get()), 
                                B: T.memref(M, N, dtype.get()), 
                                C: T.memref(M, N, dtype.get())):
-        
-        # Helper to unwrap ArithValue to raw MLIR Value
-        def unwrap(val):
-            return val.value if hasattr(val, "value") else val
-        
-        def to_value(val):
-            if isinstance(val, Value):
-                return val
-            if hasattr(val, "value"):
-                return val.value
-            return Index(val).value
-        
         # ===== Step 1: Thread and Block IDs =====
-        tid_x = gpu.thread_id("x")
-        tid_y = gpu.thread_id("y")
-        bid_x = gpu.block_id("x")
-        bid_y = gpu.block_id("y")
+        tid_x = rocir.thread_idx("x")
+        tid_y = rocir.thread_idx("y")
+        bid_x = rocir.block_idx("x")
+        bid_y = rocir.block_idx("y")
         
         # Calculate linear thread index
-        bdim_x = gpu.block_dim("x")
-        tidx = (tid_y * bdim_x + tid_x)._value
+        bdim_x = rocir.block_dim("x")
+        tidx = (tid_y * bdim_x + tid_x).value
         
         # Block coordinates
-        blk_coord_y = bid_y._value
-        blk_coord_x = bid_x._value
+        blk_coord_y = bid_y
+        blk_coord_x = bid_x
         
         # ===== Step 2: Re-create TiledCopy and Layouts (Kernel Scope) =====
         # Since we need these for logic inside the kernel
@@ -153,68 +93,63 @@ def create_elementwise_add_kernel(M: int, N: int, dtype=F32Type):
         tiled_copy_C = rocir.make_tiled_copy_tv(copy_atom_store, thr_layout, val_layout,
                                                thr_shape=(THR_M, THR_N), val_shape=(VAL_M, VAL_N))
         
-        global_shape = rocir.make_shape(M, N)
-        global_stride = rocir.make_stride(N, 1)
-        global_layout = rocir.make_layout(global_shape, global_stride)
+        tensor_A = rocir.make_tensor(A, shape=(M, N), strides=(N, 1))
+        tensor_B = rocir.make_tensor(B, shape=(M, N), strides=(N, 1))
+        tensor_C = rocir.make_tensor(C, shape=(M, N), strides=(N, 1))
         
-        tensor_A = rocir.make_tensor(A, global_layout, shape=(M, N))
-        tensor_B = rocir.make_tensor(B, global_layout, shape=(M, N))
-        tensor_C = rocir.make_tensor(C, global_layout, shape=(M, N))
-        
-        # ===== Step 3: Tiling and Partitioning =====
         TILE_M = THR_M * VAL_M
         TILE_N = THR_N * VAL_N
+        tile_shape = (TILE_M, TILE_N)
+        gA = rocir.zipped_divide(tensor_A, tile_shape)
+        gB = rocir.zipped_divide(tensor_B, tile_shape)
+        gC = rocir.zipped_divide(tensor_C, tile_shape)
+        idC = rocir.make_identity_tensor((M, N))
+        cC = rocir.zipped_divide(idC, tile_shape)
         
-        # Block start
-        blk_start_row = unwrap(arith.MulIOp(to_value(blk_coord_y), to_value(Index(TILE_M).value)).result)
-        blk_start_col = unwrap(arith.MulIOp(to_value(blk_coord_x), to_value(Index(TILE_N).value)).result)
+        blk_coord = (blk_coord_y, blk_coord_x)
+        blkA = gA[blk_coord]
+        blkB = gB[blk_coord]
+        blkC = gC[blk_coord]
+        blkCrd = cC[blk_coord]
         
-        # Thread mapping (manual for now, derived from layouts)
-        thr_in_tile = tidx % Index(THR_M * THR_N)
-        thr_row = unwrap((thr_in_tile // Index(THR_N)).value)
-        thr_col = unwrap((thr_in_tile % Index(THR_N)).value)
+        thr_copy_A = tiled_copy_A.get_slice(tidx)
+        thr_copy_B = tiled_copy_B.get_slice(tidx)
+        thr_copy_C = tiled_copy_C.get_slice(tidx)
         
-        # Precompute bounds
-        limit_M = to_value(Index(M).value)
-        limit_N = to_value(Index(N).value)
+        thrA = thr_copy_A.partition_S(blkA)
+        thrB = thr_copy_B.partition_S(blkB)
+        thrC = thr_copy_C.partition_S(blkC)
+        thrCrd = thr_copy_C.partition_S(blkCrd)
         
         val_shape = tiled_copy_A.val_shape
+        frgA = rocir.make_fragment_like(thrA, dtype.get())
+        frgB = rocir.make_fragment_like(thrB, dtype.get())
+        frgC = rocir.make_fragment_like(thrC, dtype.get())
         
-        thrA = rocir.partition_src(tiled_copy_A, tensor_A, tidx)
-        thrB = rocir.partition_src(tiled_copy_B, tensor_B, tidx)
-        thrC = rocir.partition_dst(tiled_copy_C, tensor_C, tidx)
+        pred_ty = IntegerType.get_signless(1)
+        frgPred = rocir.make_rmem_tensor(val_shape, pred_ty)
+        total_vals = val_shape[0] * val_shape[1]
+        for linear in range(total_vals):
+            lin_idx = rocir.const_index(linear)
+            coords = thrCrd.coords_from_linear(lin_idx)
+            pred_val = rocir.elem_less(coords, (M, N))
+            pred_offsets = tuple(frgPred.offsets_from_linear(lin_idx))
+            frgPred[pred_offsets] = pred_val
         
-        cond = None
-        global_limits = [limit_M, limit_N]
-        for dim in range(len(val_shape)):
-            base = to_value(thrA.base_coords[dim])
-            extent = to_value(Index(val_shape[dim]).value)
-            end_coord = unwrap(arith.AddIOp(base, extent).result)
-            limit = global_limits[dim]
-            dim_cond = unwrap(arith.CmpIOp(arith.CmpIPredicate.ule, end_coord, limit).result)
-            cond = dim_cond if cond is None else unwrap(arith.AndIOp(cond, dim_cond).result)
+        rocir.copy(tiled_copy_A, thrA, frgA, pred=frgPred)
+        rocir.copy(tiled_copy_B, thrB, frgB, pred=frgPred)
         
-        if_op = scf.IfOp(cond)
-        with InsertionPoint(if_op.then_block):
-            frgA = rocir.make_fragment_like(tiled_copy_A, dtype.get())
-            frgB = rocir.make_fragment_like(tiled_copy_B, dtype.get())
-            frgC = rocir.make_fragment_like(tiled_copy_C, dtype.get())
-            
-            rocir.copy(tiled_copy_A, thrA, frgA)
-            rocir.copy(tiled_copy_B, thrB, frgB)
-            
-            for i in range(val_shape[0]):
-                idx_i = unwrap(Index(i).value)
-                for j in range(val_shape[1]):
-                    idx_j = unwrap(Index(j).value)
-                    idx_coords = [idx_i, idx_j]
-                    a_val = unwrap(memref.load(frgA.memref, idx_coords))
-                    b_val = unwrap(memref.load(frgB.memref, idx_coords))
-                    c_val = unwrap(arith.AddFOp(a_val, b_val).result)
-                    memref.store(c_val, frgC.memref, idx_coords)
-            
-            rocir.copy(tiled_copy_C, frgC, thrC)
-            scf.YieldOp([])
+        for i in range(val_shape[0]):
+            idx_i = rocir.const_index(i)
+            for j in range(val_shape[1]):
+                idx_j = rocir.const_index(j)
+                coords = (idx_i, idx_j)
+                a_val = frgA[coords]
+                b_val = frgB[coords]
+                c_val = arith.AddFOp(a_val, b_val).result
+                frgC[coords] = c_val
+        
+        rocir.copy(tiled_copy_C, frgC, thrC, pred=frgPred)
     
     ip.__exit__(None, None, None)
     
@@ -223,7 +158,17 @@ def create_elementwise_add_kernel(M: int, N: int, dtype=F32Type):
     return ctx.module
 
 
-def compile_and_run(M, N, dtype=F32Type, benchmark=False, iterations=100):
+@pytest.mark.parametrize(
+    ("M", "N"),
+    [
+        (1, 3),
+        (17, 15),
+        (64, 128),
+        (129, 255),
+        (1021, 515),
+    ],
+)
+def test_compile_and_run(M, N, dtype=F32Type, benchmark=False, iterations=100):
     """Compile and run the elementwise add kernel."""
     
     print("\n" + "="*80)
@@ -309,17 +254,6 @@ def compile_and_run(M, N, dtype=F32Type, benchmark=False, iterations=100):
     
     print(f"\n[RocDSL INFO] Verification:")
     print(f"  Max error: {error:.2e}")
-    if M <= 4 and N <= 16:
-        print(f"  Input A:\n{a_host}")
-        print(f"  Input B:\n{b_host}")
-        print(f"  Result C:\n{c_host}")
-        print(f"  Expected:\n{expected}")
-    else:
-        print(f"  First few elements:")
-        print(f"    A: {a_host[:2, :4]}")
-        print(f"    B: {b_host[:2, :4]}")
-        print(f"    C (result): {c_host[:2, :4]}")
-        print(f"    Expected: {expected[:2, :4]}")
     
     # Benchmark if requested
     if benchmark:
@@ -364,40 +298,25 @@ def compile_and_run(M, N, dtype=F32Type, benchmark=False, iterations=100):
     hip_check(hip.hipFree(d_b))
     hip_check(hip.hipFree(d_c))
     hip_check(hip.hipModuleUnload(hip_module))
-    
-    passed = error < 1e-4
-    return passed
+    assert error < 1e-4
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Elementwise add example using RocDSL"
     )
-    parser.add_argument("--M", default=4, type=int, help="Number of rows")
-    parser.add_argument("--N", default=16, type=int, help="Number of columns")
+    parser.add_argument("--M", default=129, type=int, help="Number of rows")
+    parser.add_argument("--N", default=255, type=int, help="Number of columns")
     parser.add_argument("--benchmark", action="store_true", help="Run benchmark")
     parser.add_argument("--iterations", default=100, type=int, help="Benchmark iterations")
     
     args = parser.parse_args()
     
-    passed = compile_and_run(
+    test_compile_and_run(
         args.M, args.N,
         dtype=F32Type,
         benchmark=args.benchmark,
         iterations=args.iterations
     )
     
-    print("\n" + "="*80)
-    if passed:
-        print("✅ PASS - Elementwise add test completed successfully!")
-        print("\nThis example demonstrated the RocDSL API pattern:")
-        print("  1. make_ordered_layout - create layouts with dimension ordering")
-        print("  2. make_layout_tv - create TV layout from thread and value layouts")
-        print("  3. make_copy_atom - create copy operation descriptors")
-        print("  4. make_tiled_copy_tv - create tiled copies")
-        print("  5. get_slice - get per-thread slices")
-    else:
-        print("❌ FAIL - Verification failed!")
-    print("="*80)
-    
-    sys.exit(0 if passed else 1)
+    print("✅ PASS - Elementwise add test completed successfully!")
