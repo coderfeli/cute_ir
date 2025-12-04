@@ -256,12 +256,6 @@ def perftest(func):
         warmup_iters = 5
         print(f"\n  Running {warmup_iters} warmup iterations...")
         
-        # Check if kernel_func is a Python callable (e.g. PyTorch function)
-        is_python_func = callable(kernel_func) and not hasattr(kernel_func, "_handle") # simplified check
-        # Better check: if it's not the expected HIP module function pointer type.
-        # The previous error was: unsupported input type: '<class 'function'>'
-        # So we can just check if it's callable.
-        
         if callable(kernel_func):
              for i in range(warmup_iters):
                 kernel_func(*kernel_args)
