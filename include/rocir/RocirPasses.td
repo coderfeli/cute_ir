@@ -81,7 +81,7 @@ def RocirCoordLoweringPass : Pass<"rocir-coord-lowering", "::mlir::ModuleOp"> {
   ];
 }
 
-def CuteLayoutCanonicalizePass : Pass<"cute-layout-canonicalize", "::mlir::func::FuncOp"> {
+def RocirLayoutCanonicalizePass : Pass<"rocir-layout-canonicalize", "::mlir::func::FuncOp"> {
   let summary = "Canonicalize and simplify Layout operations";
   let description = [{
     Applies algebraic simplifications to Layout operations:
@@ -100,7 +100,7 @@ def CuteLayoutCanonicalizePass : Pass<"cute-layout-canonicalize", "::mlir::func:
     ```
   }];
   
-  let constructor = "mlir::rocir::createCuteLayoutCanonicalizePass()";
+  let constructor = "mlir::rocir::createRocirLayoutCanonicalizePass()";
 }
 
 def CuteTensorPartitionPass : Pass<"cute-tensor-partition", "::mlir::func::FuncOp"> {

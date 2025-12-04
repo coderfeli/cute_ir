@@ -9,7 +9,7 @@ namespace rocir {
 // Lowering passes
 std::unique_ptr<Pass> createRocirToStandardPass();
 std::unique_ptr<Pass> createRocirCoordLoweringPass();
-std::unique_ptr<Pass> createCuteToRocmPass();
+std::unique_ptr<Pass> createRocirToRocmPass();
 
 // Registration helpers (for Python bindings)
 inline void registerRocirToStandardPassManual() {

@@ -364,27 +364,41 @@ def idx2crd(idx: Value, layout: Value, loc: Optional[Location] = None, ip: Optio
 
 
 
-def size(shape_or_layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
-    """Compute the total size of a shape or layout.
+def size(layout_or_tensor, mode: Optional[List[int]] = None, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Get the size of a layout or tensor.
     
     Args:
-        shape_or_layout: A Rocir shape or layout value
+        layout_or_tensor: Layout, tensor, or shape to query
+        mode: Optional list of mode indices to query specific dimensions
+              If None, returns total size
+              If [0], returns size of mode 0 (e.g., thread count)
+              If [1], returns size of mode 1 (e.g., tile count)
         loc: Optional source location
         ip: Optional insertion point
         
     Returns:
-        An index value representing the total size
+        Size as an index value
         
     Example:
         >>> shape = rocir.make_shape(c8, c16)
         >>> total = rocir.size(shape)  # Returns 128
+        >>> thread_count = rocir.size(tv_layout, mode=[0])  # Thread dimension
+        >>> tile_count = rocir.size(gC, mode=[1])  # Tile dimension
     """
     
     loc = _get_location(loc)
     result_type = IndexType.get()
     
+    # Handle tensor/layout with shape attribute and mode query
+    if hasattr(layout_or_tensor, 'shape') and mode is not None:
+        # Extract specific dimension
+        if isinstance(layout_or_tensor.shape, (tuple, list)):
+            idx = mode[0]
+            if idx < len(layout_or_tensor.shape):
+                return _unwrap_value(layout_or_tensor.shape[idx])
+    
     with ip or InsertionPoint.current:
-        op = rocir_ops.SizeOp(_unwrap_value(shape_or_layout), results=[result_type], loc=loc, ip=ip)
+        op = rocir_ops.SizeOp(_unwrap_value(layout_or_tensor), results=[result_type], loc=loc, ip=ip)
         return op.results[0]
 
 
@@ -770,7 +784,452 @@ def local_tile(layout: Value, tiler: Value, coord: Value, loc: Optional[Location
         return rocir_ops.LocalTileOp(result_type, _unwrap_value(layout), _unwrap_value(tiler), _unwrap_value(coord), loc=loc).result
 
 
+#===----------------------------------------------------------------------===//
+# Copy Atom and Tiled Copy Classes
+#===----------------------------------------------------------------------===//
+
+class CopyAtom:
+    """Copy atom descriptor for data movement operations.
+    
+    Encapsulates a copy operation with metadata about vector size and coalescing.
+    Used to construct tiled copy operations.
+    """
+    
+    def __init__(self, element_type: Type, vector_size: int, is_coalesced: bool = True):
+        """Initialize a copy atom.
+        
+        Args:
+            element_type: Element type being copied (e.g., f16, f32)
+            vector_size: Number of elements per copy instruction
+            is_coalesced: Whether memory accesses are coalesced
+        """
+        self.element_type = element_type
+        self.vector_size = vector_size
+        self.is_coalesced = is_coalesced
+        self._value = None  # Will be set when MLIR op is created
+    
+    def __repr__(self):
+        return f"CopyAtom({self.element_type}, vec={self.vector_size}, coalesced={self.is_coalesced})"
+
+
+class TiledCopy:
+    """Tiled copy operation descriptor.
+    
+    Represents a data movement operation distributed across threads in a block.
+    Created by combining a CopyAtom with thread-value layouts.
+    """
+    
+    def __init__(self, copy_atom: CopyAtom, tv_layout=None, tiler=None):
+        """Initialize a tiled copy.
+        
+        Args:
+            copy_atom: Base copy atom
+            tv_layout: Thread-value layout (optional)
+            tiler: Tiler shape (optional)
+        """
+        self.copy_atom = copy_atom
+        self.tv_layout = tv_layout
+        self.tiler = tiler
+        self._value = None  # MLIR value
+    
+    def get_slice(self, thread_idx: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+        """Get per-thread slice of the tiled copy.
+        
+        Args:
+            thread_idx: Thread index within the block
+            loc: Optional source location
+            ip: Optional insertion point
+            
+        Returns:
+            ThrCopy instance for the specific thread
+        """
+        return ThrCopy(self, thread_idx)
+    
+    def partition_S(self, tensor: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+        """Partition source tensor according to this tiled copy's layout.
+        
+        Args:
+            tensor: Tensor to partition
+            loc: Optional source location
+            ip: Optional insertion point
+            
+        Returns:
+            Partitioned tensor
+        """
+        # This would use a partition operation in MLIR
+        # For now, return the tensor (placeholder)
+        return tensor
+    
+    def partition_D(self, tensor: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+        """Partition destination tensor according to this tiled copy's layout.
+        
+        Args:
+            tensor: Tensor to partition
+            loc: Optional source location
+            ip: Optional insertion point
+            
+        Returns:
+            Partitioned tensor
+        """
+        return tensor
+    
+    def __repr__(self):
+        return f"TiledCopy({self.copy_atom})"
+
+
+class ThrCopy:
+    """Per-thread copy descriptor.
+    
+    Represents the portion of a tiled copy assigned to a specific thread.
+    """
+    
+    def __init__(self, tiled_copy: TiledCopy, thread_idx: Value):
+        """Initialize per-thread copy.
+        
+        Args:
+            tiled_copy: Parent tiled copy
+            thread_idx: Thread index
+        """
+        self.tiled_copy = tiled_copy
+        self.thread_idx = thread_idx
+    
+    def partition_S(self, tensor: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+        """Partition source tensor for this thread.
+        
+        Args:
+            tensor: Tensor to partition
+            loc: Optional source location
+            ip: Optional insertion point
+            
+        Returns:
+            Thread's portion of the tensor
+        """
+        # Would use local_partition or similar operation
+        return tensor
+    
+    def partition_D(self, tensor: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+        """Partition destination tensor for this thread."""
+        return tensor
+    
+    def __repr__(self):
+        return f"ThrCopy({self.tiled_copy}, tid={self.thread_idx})"
+
+
+#===----------------------------------------------------------------------===//
+# Tensor and Fragment Operations
+#===----------------------------------------------------------------------===//
+
+class Fragment:
+    """Fragment (register memory tensor) wrapper.
+    
+    Represents a tensor allocated in register memory for per-thread computation.
+    """
+    
+    def __init__(self, value: Value, element_type: Type = None):
+        """Initialize fragment.
+        
+        Args:
+            value: Underlying MLIR value
+            element_type: Element type of the fragment
+        """
+        self._value = value
+        self.element_type = element_type
+        self.shape = None
+    
+    def load(self):
+        """Load fragment data for computation.
+        
+        Returns:
+            The loaded value (identity for now, will be optimized by compiler)
+        """
+        return self._value
+    
+    def store(self, value):
+        """Store computed value into fragment.
+        
+        Args:
+            value: Value to store
+        """
+        # In a full implementation, this would generate appropriate store operations
+        # For now, this is handled by the compiler optimization
+        pass
+    
+    def __getitem__(self, index):
+        """Access fragment element at index."""
+        # Would use appropriate indexing operation
+        return self._value
+    
+    def __setitem__(self, index, value):
+        """Set fragment element at index."""
+        pass
+
+
+def make_fragment_like(tensor: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Fragment:
+    """Create a fragment (register memory tensor) with the same shape as the input tensor.
+    
+    Args:
+        tensor: Template tensor to match shape
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        Fragment allocated in register memory
+        
+    Example:
+        >>> thrA = thr_copy_A.partition_S(blkA)
+        >>> frgA = rocir.make_fragment_like(thrA)
+    """
+    # For now, return a Fragment wrapper around the tensor
+    # In a full implementation, this would allocate register memory
+    return Fragment(tensor)
+
+
+def make_rmem_tensor(shape, element_type: Type, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Fragment:
+    """Create a tensor in register memory with given shape and type.
+    
+    Args:
+        shape: Shape of the tensor (can be a Value or tuple)
+        element_type: Element type
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        Fragment allocated in register memory
+        
+    Example:
+        >>> frgPred = rocir.make_rmem_tensor(thrCrd.shape, Boolean)
+    """
+    # Create a placeholder fragment
+    # In full implementation, would allocate actual register memory
+    from mlir.dialects import memref
+    # For now, return a Fragment object
+    return Fragment(None, element_type)
+
+
+def make_identity_tensor(shape, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+    """Create an identity tensor (coordinate tensor) with given shape.
+    
+    An identity tensor maps each coordinate to itself, useful for tracking
+    coordinates during partitioning.
+    
+    Args:
+        shape: Shape tuple or Value
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        Identity tensor
+        
+    Example:
+        >>> idC = rocir.make_identity_tensor(mC.shape)
+        >>> cC = rocir.zipped_divide(idC, tiler=tiler_mn)
+    """
+    loc = _get_location(loc)
+    # For now, return shape as-is
+    # Full implementation would create proper identity mapping
+    return shape
+
+
+def make_ordered_layout(shape: tuple, order: tuple = None, stride: tuple = None,
+                       loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Create a layout with specified dimension ordering.
+    
+    Args:
+        shape: Shape tuple
+        order: Dimension order tuple (e.g., (1, 0) for column-major)
+        stride: Optional explicit stride (computed from order if not provided)
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        Layout value
+        
+    Example:
+        >>> # Row-major: order (1, 0) means dim 1 varies fastest
+        >>> thr_layout = rocir.make_ordered_layout((4, 32), order=(1, 0))
+        >>> # Equivalent to make_layout((4, 32), stride=(32, 1))
+    """
+    if stride is not None:
+        return make_layout(shape, stride=stride, loc=loc, ip=ip)
+    
+    if order is None:
+        order = tuple(range(len(shape) - 1, -1, -1))  # Default: row-major
+    
+    # Compute strides from order
+    # For order (1, 0): fastest dimension is 1, so stride[1] = 1, stride[0] = shape[1]
+    computed_stride = [1] * len(shape)
+    sorted_dims = sorted(range(len(shape)), key=lambda i: order[i])
+    
+    stride_val = 1
+    for dim in sorted_dims:
+        computed_stride[dim] = stride_val
+        stride_val *= shape[dim]
+    
+    return make_layout(shape, stride=tuple(computed_stride), loc=loc, ip=ip)
+
+
+def product_each(shape: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> Value:
+    """Compute element-wise product of shape dimensions.
+    
+    For nested shapes, computes the product at each hierarchical level.
+    Example: ((2,3), (4,5)) -> (6, 20)
+    
+    Args:
+        shape: Input shape
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        Shape with products computed at each level
+        
+    Example:
+        >>> shape = make_shape((2, 3), (4, 5))  # Nested shape
+        >>> result = product_each(shape)  # -> (6, 20)
+    """
+    loc = _get_location(loc)
+    shape = _unwrap_value(shape)
+    with _get_insertion_point(ip):
+        from mlir.dialects import rocir as rocir_ops
+        op = rocir_ops.ProductEachOp(shape, loc=loc)
+        return op.result
+
+
+def make_layout_tv(thr_layout: Value, val_layout: Value, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+    """Create tiler and TV layout from thread and value layouts.
+    
+    Combines thread layout (thread → tile coords) and value layout (value → tile coords)
+    to produce a tiler and thread-value layout.
+    
+    Computes:
+    1. layout_mn = raked_product(thr_layout, val_layout)
+    2. tiler_mn = product_each(layout_mn.shape)
+    3. layout_tv = composition(right_inverse(layout_mn), make_layout((thr_size, val_size)))
+    
+    Args:
+        thr_layout: Thread layout
+        val_layout: Value layout
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        Tuple of (tiler, tv_layout)
+        
+    Example:
+        >>> thr_layout = rocir.make_layout((4, 32), stride=(32, 1))
+        >>> val_layout = rocir.make_layout((4, 4), stride=(4, 1))
+        >>> tiler_mn, tv_layout = rocir.make_layout_tv(thr_layout, val_layout)
+    """
+    loc = _get_location(loc)
+    thr_layout = _unwrap_value(thr_layout)
+    val_layout = _unwrap_value(val_layout)
+    with _get_insertion_point(ip):
+        from mlir.dialects import rocir as rocir_ops
+        op = rocir_ops.MakeLayoutTVOp(thr_layout, val_layout, loc=loc)
+        return (op.tiler_mn, op.layout_tv)
+
+
+def elem_less(a, b, loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None):
+    """Element-wise less-than comparison.
+    
+    Args:
+        a: First value
+        b: Second value (can be Shape or Value)
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        Boolean result
+        
+    Example:
+        >>> val = rocir.elem_less(thrCrd[i], shape)
+        >>> frgPred[i] = val
+    """
+    from mlir.dialects import arith
+    # Unwrap values
+    a_val = _unwrap_value(a)
+    b_val = _unwrap_value(b) if not isinstance(b, (tuple, list)) else _unwrap_value(b[0])
+    
+    # Generate comparison
+    with ip or InsertionPoint.current:
+        return arith.cmpi(arith.CmpIPredicate.slt, a_val, b_val)
+
+
+#===----------------------------------------------------------------------===//
+# Copy Atom Construction Functions
+#===----------------------------------------------------------------------===//
+
+def make_copy_atom(element_type: Type, vector_size: int = 8, is_coalesced: bool = True, 
+                   loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> CopyAtom:
+    """Create a copy atom for data movement operations.
+    
+    Args:
+        element_type: Type of elements being copied (e.g., f16, f32)
+        vector_size: Number of elements per copy instruction (default: 8)
+        is_coalesced: Whether accesses should be coalesced (default: True)
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        CopyAtom descriptor
+        
+    Example:
+        >>> from mlir.ir import F16Type
+        >>> atom = rocir.make_copy_atom(F16Type.get(), vector_size=8)
+    """
+    return CopyAtom(element_type, vector_size, is_coalesced)
+
+
+def make_tiled_copy_tv(copy_atom: CopyAtom, thr_layout: Value, val_layout: Value,
+                       loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> TiledCopy:
+    """Create a tiled copy from copy atom and separate thread/value layouts.
+    
+    Args:
+        copy_atom: Copy atom descriptor
+        thr_layout: Thread layout mapping threads to tile coordinates
+        val_layout: Value layout mapping per-thread values to tile coordinates
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Returns:
+        TiledCopy descriptor
+        
+    Example:
+        >>> atom = rocir.make_copy_atom(F16Type.get(), 8)
+        >>> thr_layout = rocir.make_layout((4, 32), stride=(32, 1))
+        >>> val_layout = rocir.make_layout((4, 4), stride=(4, 1))
+        >>> tiled_copy = rocir.make_tiled_copy_tv(atom, thr_layout, val_layout)
+    """
+    tiled_copy = TiledCopy(copy_atom, tv_layout=None, tiler=None)
+    tiled_copy.thr_layout = thr_layout
+    tiled_copy.val_layout = val_layout
+    return tiled_copy
+
+
+def copy(copy_atom: CopyAtom, src: Value, dst: Value, 
+         pred: Optional[Value] = None,
+         loc: Optional[Location] = None, ip: Optional[InsertionPoint] = None) -> None:
+    """Execute a copy operation using the given copy atom.
+    
+    Args:
+        copy_atom: Copy atom specifying the transfer operation
+        src: Source tensor
+        dst: Destination tensor
+        pred: Optional predicate mask for conditional copying
+        loc: Optional source location
+        ip: Optional insertion point
+        
+    Example:
+        >>> rocir.copy(copy_atom, src_tensor, dst_tensor, pred=pred_mask)
+    """
+    loc = _get_location(loc)
+    # This would generate the actual copy operation in MLIR
+    # For now, this is a placeholder that would be implemented with proper MLIR ops
+    pass
+
+
+#===----------------------------------------------------------------------===//
 # Printing operations
+#===----------------------------------------------------------------------===//
 
 # Use Python's built-in print for static compile-time values
 # This mirrors the behavior where print shows compile-time information
@@ -855,6 +1314,21 @@ __all__ = [
     # Local operations
     "local_partition",
     "local_tile",
+    # Copy atom classes and operations
+    "CopyAtom",
+    "TiledCopy",
+    "ThrCopy",
+    "make_copy_atom",
+    "make_tiled_copy_tv",
+    "copy",
+    # Tensor and fragment operations
+    "Fragment",
+    "make_fragment_like",
+    "make_rmem_tensor",
+    "make_identity_tensor",
+    "make_ordered_layout",
+    "make_layout_tv",
+    "elem_less",
     # Printing operations
     "print",
     "printf",
