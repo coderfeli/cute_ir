@@ -21,6 +21,7 @@ from rocdsl.compiler.context import RAIIMLIRContextModule
 from rocdsl.dialects.ext import gpu, scf, rocir
 from rocdsl.dialects.ext.gpu import lds_space
 from rocdsl.runtime.hip_util import hip_check, get_hip_arch
+from rocdsl.utils import SmemAllocator
 from utils import compile_to_hsaco
 from mlir import ir
 from mlir.dialects import arith, memref, math
@@ -42,17 +43,20 @@ N = 256  # Number of columns (feature size, matches block size)
 ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
 gpu.set_container_module(ctx.module)
 
+# Initialize Allocator with architecture for capacity checks
+allocator = SmemAllocator(ctx, arch=get_hip_arch())
+
+# Allocate Shared Memory for reduction (size N)
+# We reuse this buffer for max reduction and sum reduction
+smem_decl = allocator.allocate_array(T.f32(), N)
+
 @gpu.module("softmax_module", [f'#rocdl.target<chip = "{get_hip_arch()}", abi = "500">'])
 def gpu_mod():
-    pass
+    # Finalize allocation to create global buffer
+    allocator.finalize()
 
 ip = ir.InsertionPoint.at_block_begin(gpu_mod.regions[0].blocks[0])
 ip.__enter__()
-
-# Shared memory for reduction (size N)
-# We reuse this buffer for max reduction and sum reduction
-smem_type = T.memref(N, T.f32(), memory_space=lds_space())
-memref.global_(sym_name="shared_buffer", type_=smem_type, alignment=16)
 
 @gpu.func(emit=True)
 def softmax_kernel(A: T.memref(M, N, T.f32()), C: T.memref(M, N, T.f32())):
@@ -75,8 +79,10 @@ def softmax_kernel(A: T.memref(M, N, T.f32()), C: T.memref(M, N, T.f32())):
         val = rocir.crd2idx(coord, smem_layout)
         return val.value if hasattr(val, 'value') else val
     
-    # Get shared memory
-    smem = memref.get_global(smem_type, "shared_buffer")
+    # Get shared memory using allocator
+    base_ptr = allocator.get_base()
+    smem_obj = smem_decl(base_ptr)
+    smem = smem_obj.get() # This is memref<Nxf32, 3> view
     
     # 1. Load data and write to shared memory for Max Reduction
     val = memref.load(A, [row.value, tid.value])

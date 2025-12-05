@@ -8,9 +8,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../build/pytho
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../python'))
 
 from rocdsl.compiler.context import RAIIMLIRContextModule
-from rocdsl.dialects.ext import gpu, scf
+from rocdsl.dialects.ext import gpu, scf, rocir
 from rocdsl.dialects.ext.gpu import lds_space
 from rocdsl.runtime.hip_util import hip_check, get_hip_arch
+from rocdsl.utils import SmemAllocator
 from utils import compile_to_hsaco
 from mlir import ir
 from mlir.dialects import arith, memref
@@ -26,24 +27,27 @@ TILE_SIZE = 16
 ctx = RAIIMLIRContextModule(allow_unregistered_dialects=True)
 gpu.set_container_module(ctx.module)
 
+# Initialize Allocator
+allocator = SmemAllocator(ctx, arch=get_hip_arch())
+
+# We need to allocate enough space for TILE_SIZE x TILE_SIZE float32 elements
+# SmemAllocator's allocate_array gives us a 1D array view.
+s_a_decl = allocator.allocate_array(T.f32(), TILE_SIZE * TILE_SIZE)
+s_b_decl = allocator.allocate_array(T.f32(), TILE_SIZE * TILE_SIZE)
+
 @gpu.module("matmul_shared", [f'#rocdl.target<chip = "{get_hip_arch()}", abi = "500">'])
 def gpu_mod():
-    pass
+    allocator.finalize()
 
 ip = ir.InsertionPoint.at_block_begin(gpu_mod.regions[0].blocks[0])
 ip.__enter__()
 
-# KEY FIX: Use memref.global_ with lds_space()
-tile_type = T.memref(TILE_SIZE, TILE_SIZE, T.f32(), memory_space=lds_space())
-
-memref.global_(sym_name="A_shared_tile", type_=tile_type, alignment=16)
-memref.global_(sym_name="B_shared_tile", type_=tile_type, alignment=16)
-
 @gpu.func(emit=True)
 def matmul_shared(A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.memref(M, N, T.f32())):
-    # Get references to shared memory
-    As = memref.get_global(tile_type, "A_shared_tile")
-    Bs = memref.get_global(tile_type, "B_shared_tile")
+    # Get references to shared memory using Allocator
+    base_ptr = allocator.get_base()
+    As = s_a_decl(base_ptr)
+    Bs = s_b_decl(base_ptr)
     
     row = (gpu.block_id("y") * arith.constant(T.index(), TILE_SIZE) + gpu.thread_id("y"))._value
     col = (gpu.block_id("x") * arith.constant(T.index(), TILE_SIZE) + gpu.thread_id("x"))._value
@@ -60,6 +64,24 @@ def matmul_shared(A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.m
     acc = zero_f
     num_tiles = arith.constant(T.index(), K // TILE_SIZE)
     
+    # Helper for 2D to 1D mapping: idx = y * WIDTH + x
+    tile_width = arith.constant(T.index(), TILE_SIZE)
+    
+    # Rocir Layout definition
+    tile_size_idx = arith.constant(T.index(), TILE_SIZE)
+    one_idx = arith.constant(T.index(), 1)
+    
+    # Shape: (TILE_SIZE, TILE_SIZE)
+    tile_shape = rocir.make_shape(tile_size_idx, tile_size_idx)
+    # Stride: (TILE_SIZE, 1) -> Row Major
+    tile_stride = rocir.make_stride(tile_size_idx, one_idx)
+    tile_layout = rocir.make_layout(tile_shape, tile_stride)
+
+    def get_tile_idx(y, x):
+        coord = rocir.make_coord(y, x)
+        idx_val = rocir.crd2idx(coord, tile_layout)
+        return idx_val.value if hasattr(idx_val, 'value') else idx_val
+
     for_tiles = scf.ForOp(zero.value, num_tiles.value, one.value, [acc.value])
     with ir.InsertionPoint(for_tiles.body):
         t = for_tiles.induction_variable
@@ -68,11 +90,11 @@ def matmul_shared(A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.m
         
         a_col = (k_base + tx)._value
         a_val = memref.load(A, [row.value, a_col.value])
-        memref.store(a_val.value, As, [ty.value, tx.value])
+        As.store(a_val.value, [get_tile_idx(ty.value, tx.value)])
         
         b_row = (k_base + ty)._value
         b_val = memref.load(B, [b_row.value, col.value])
-        memref.store(b_val.value, Bs, [ty.value, tx.value])
+        Bs.store(b_val.value, [get_tile_idx(ty.value, tx.value)])
         
         gpu.barrier()
         
@@ -81,8 +103,8 @@ def matmul_shared(A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.m
             k_local = for_k.induction_variable
             acc_k = for_k.inner_iter_args[0]
             
-            a_smem = memref.load(As, [ty.value, k_local.value])
-            b_smem = memref.load(Bs, [k_local.value, tx.value])
+            a_smem = As.load([get_tile_idx(ty.value, k_local.value)])
+            b_smem = Bs.load([get_tile_idx(k_local.value, tx.value)])
             new_acc = (acc_k + a_smem * b_smem)._value
             
             scf.yield_([new_acc.value])
