@@ -325,6 +325,6 @@ if __name__ == "__main__":
         print("✓ BENCHMARK COMPLETED SUCCESSFULLY")
         sys.exit(0)
     else:
-        print("⚠️ BENCHMARK FAILED CORRECTNESS CHECK")
+        print("[ERROR]BENCHMARK FAILED CORRECTNESS CHECK")
         sys.exit(1)
 
